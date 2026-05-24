@@ -28,6 +28,10 @@ android {
     buildFeatures {
         compose = true
     }
+
+    ksp {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
 }
 
 dependencies {
@@ -46,6 +50,8 @@ dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.core)
+    implementation(libs.activity.compose) // BackHandler
 
     // Serialization — JSON output (details.json, measurements.json) + nav arg
     implementation(libs.kotlinx.serialization.json)
@@ -72,6 +78,13 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.turbine)
-    testImplementation(libs.room.testing)
     testImplementation(libs.work.testing)
+
+    // Instrumented tests (Room DAO uses real Android Context via in-memory DB)
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.ext)
+    androidTestImplementation(libs.coroutines.test)
+    androidTestImplementation(libs.room.testing)
+    debugImplementation(libs.compose.ui.test.manifest)
 }

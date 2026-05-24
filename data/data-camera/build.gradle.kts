@@ -47,4 +47,8 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.turbine)
+
+    // Instrumented tests (android.util.Size, android.graphics.YuvImage require device/emulator)
+    androidTestImplementation(libs.androidx.test.ext)
+    androidTestImplementation(libs.mockk.android)
 }

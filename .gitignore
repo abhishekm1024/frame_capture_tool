@@ -1,0 +1,21 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Google Services — must be provided per environment, never committed
+app/google-services.json
+
+# Generated files
+**/build/
+**/.cxx/
+
+# Keystore files
+*.jks
+*.keystore

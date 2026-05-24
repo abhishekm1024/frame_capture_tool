@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer ring -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,20 A34,34 0 1,1 53.999,20 Z" />
+
+    <!-- Inner cutout to form a ring -->
+    <path
+        android:fillColor="#1A237E"
+        android:pathData="M54,32 A22,22 0 1,1 53.999,32 Z" />
+
+    <!-- Centre dot -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,48 A6,6 0 1,1 53.999,48 Z" />
+
+</vector>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Activity window theme applied before Compose renders.
+        All color/typography tokens are owned by core-ui ScanAppTheme.
+        enableEdgeToEdge() in MainActivity handles status/nav bar transparency at runtime.
+    -->
+    <style name="Theme.SfmScanner" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

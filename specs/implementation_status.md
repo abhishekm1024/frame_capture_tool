@@ -22,6 +22,7 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | M1-B | `:core:core-ui` | ✅ Complete | `ScanAppTheme`; `PrimaryButton`, `LabeledTextField`, `LoadingOverlay`, `ErrorBanner` |
 | M1-C | `:core:core-storage` | ✅ Complete | `SessionDirectoryManager`, `ZipBuilder` (atomic write via `.tmp` rename), `AppFileProvider`, `StorageConstants`, `StorageModule` |
 | M2 | `:data:data-camera` | ✅ Complete | `CameraRepository` + `CameraConfig` + `FrameResult` (interface lives here per arch §12); `FrameRecord`; `CameraConstants`; `TimestampGate` (AtomicLong CAS, init = -intervalMs); `YuvFrame`; `JpegFrameEncoder` (YUV→NV21→YuvImage→JPEG); `ResolutionPicker` (ResolutionFilter fallback chain); `CameraXFrameSource` (callbackFlow + STRATEGY_KEEP_ONLY_LATEST + Camera2Interop); `CameraRepositoryImpl`; `CameraModule` |
+| M3 | `:data:data-ar` | ✅ Complete | `ArRepository` + `ArSessionEvent` (interface in data-ar per arch §12 deviation); `ArDomainModels` (`ArPoint`, `CameraPose`, `HitType`, `ArTrackingState`, `ARMeasurement`); `ArConstants` (`AR_TRANSLATION_THRESHOLD_METERS=0.30f`, `AR_RAYCAST_RETRY_BUDGET=30`); `TranslationCalculator` (pure JVM); `MeasurementState` (internal sealed class + `HitTypeAndPosition`); `MeasurementStateReducer` (pure function, JVM-testable, no ARCore dep); `DepthAvailabilityChecker`; `ArSessionManager` (`DefaultLifecycleObserver`; `SHARED_CAMERA` feature; emits `cameraId`); `ArMeasurementPipeline` (`flow{}` update loop; hit-type priority chain; retry budget; `flowOn(Default)`); `ArRepositoryImpl`; `ArModule` |
 | M4 | `:data:data-firebase` | ✅ Complete | `FirebaseRepository` + `FirebaseRepositoryImpl`; `AnonymousAuthSource`; `FirebaseStorageUploader` (`callbackFlow`); `UploadProgress`; `FirebaseConstants`; `FirebaseModule` |
 | M5-A | `:features:feature-splash` | ✅ Complete | `SplashScreen`, `SplashViewModel`, `SplashDestination`, `SplashUiEffect`; Lottie suspend pattern; `BackHandler { /* no-op */ }`; **placeholder Lottie JSON** |
 | M5-B | `:features:feature-selection` | ✅ Complete | `SelectionScreen` (+ `SelectionScreenContent`), `SelectionViewModel`, `SelectionDestination`, `SelectionUiState`, `SelectionUiEffect.NavigateToForm(selectionId)`, `SelectionOption`, `SelectionOptions` (TBD-A1 placeholders) |
@@ -30,15 +31,25 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 
 **Plan-milestone naming reconciliation:**
 - Commit labels (M3, M4, M5) are the user's sequential session numbers, NOT plan milestone IDs.
-- Actual plan milestones completed: M0, M1-A/B/C, M2 (data-camera), M4 (data-firebase), M5-A/B/C (UI features), plus plan-M7 (feature-upload implemented as user-M6).
-- Plan milestones **M3 (`data-ar`)** and **M6 (`feature-scan`)** are **not yet started** — stubs only.
+- Actual plan milestones completed: M0, M1-A/B/C, M2 (data-camera), M3 (data-ar), M4 (data-firebase), M5-A/B/C (UI features), plus plan-M7 (feature-upload implemented as user-M6).
+- Plan milestone **M6 (`feature-scan`)** is **not yet started** — stub only.
 
 ---
 
 ## 2. Current Architecture State
 
-- **11-module Gradle project**, all declared. Stubs: `:data:data-ar`, `:features:feature-scan`.
+- **11-module Gradle project**, all declared. Stub: `:features:feature-scan` (build.gradle.kts only).
 - **DI:** Hilt on every module. `ScanApp` wires `HiltWorkerFactory` for `UploadWorker`.
+- **AR pipeline (M3 complete):**
+  - `ArRepository`/domain types (`ArPoint`, `CameraPose`, `HitType`, `ArTrackingState`, `ARMeasurement`) defined in **`data-ar`** (not feature-scan) per arch §12.
+  - `startSession(lifecycleOwner)` — deviation D-2: LifecycleOwner required for `DefaultLifecycleObserver`.
+  - `getMeasurementFlow(displayWidthPx, displayHeightPx)` — deviation D-3: pixel coords required for `Frame.hitTest()`.
+  - `ArSessionEvent.CameraShared(cameraId)` — deviation D-4: exposes ARCore's camera ID for M6 SharedCamera wiring.
+  - Session uses `Session.Feature.SHARED_CAMERA`; actual CameraX-sharing wired in M6 (`feature-scan`).
+  - `MeasurementStateReducer` is pure Kotlin (no ARCore SDK types) — fully JVM-testable.
+  - Hit priority chain: DEPTH → PLANE → INSTANT_PLACEMENT → FEATURE_POINT → retry (budget: 30).
+  - R-01 mitigated: `hitType` recorded per measurement; `DepthAvailabilityChecker` configures optimal session config.
+  - R-13 mitigated: `ArSessionManager` as `DefaultLifecycleObserver` (pause/resume/close on lifecycle events).
 - **Camera pipeline (M2 complete):**
   - `CameraRepository`/`CameraConfig`/`FrameResult`/`FrameRecord` defined in **`data-camera`** (not `feature-scan`) to satisfy architecture §12.
   - `LifecycleOwner` is a parameter of `startCapture()` — minor spec deviation (data_contracts.md §6.1 omits it; required by CameraX).
@@ -74,7 +85,7 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | C-5 | `[TBD-A2]` placeholder dropdown options in FormScreen | `features/feature-form/.../FormOptions.kt` | One-file replacement |
 | C-6 | `FormScreen` back-arrow lambda not yet wired in NavHost | `app/.../AppNavHost.kt` | M8 |
 | C-7 | `FormUiEffect.NavigateToScan` emits raw `FormData`; NavHost must URL-encode it | `FormViewModel.kt` | M8 |
-| C-8 | `data-ar` is a pure stub (build.gradle.kts only) | `data/data-ar/` | Plan-M3 |
+| C-8 | ~~`data-ar` is a pure stub~~ | ~~`data/data-ar/`~~ | ✅ Resolved in M3 |
 | C-9 | `feature-scan` is a pure stub (build.gradle.kts only) | `features/feature-scan/` | Plan-M6 |
 | C-10 | `google-services.json` presence not verified | `:app/` | Verify before assembly |
 | C-11 | No `./gradlew assembleDebug` run since M0 — M2 additions unverified by build | n/a | Run before next session |
@@ -87,12 +98,12 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 
 | Plan milestone | Module | Status | Notes |
 |----------------|--------|--------|-------|
-| M3 | `:data:data-ar` | 🔲 Not started | Depends on M1 ✅. ARCore Session, measurement pipeline, depth fallback chain |
-| M6 | `:features:feature-scan` | 🔲 Not started | Depends on M1 ✅, M2 ✅, M3, M5-B ✅, M5-C ✅. Also owns `PackagingScreen` + `PackageSessionUseCase` |
+| M3 | `:data:data-ar` | ✅ Complete | Implemented |
+| M6 | `:features:feature-scan` | 🔲 Not started | Depends on M1 ✅, M2 ✅, M3 ✅, M5-B ✅, M5-C ✅. Also owns `PackagingScreen` + `PackageSessionUseCase` |
 | M8 | `:app` integration | 🔲 Not started | Depends on all M5 ✅, M6, plan-M7 (feature-upload ✅). Resolves C-1, C-2, C-6, C-7 |
 | M9 | Testing & Hardening | 🔲 Not started | Depends on M8 |
 
-**Recommended next module: M3 (`data-ar`)** — last pure data-layer module before feature-scan can be built.
+**Recommended next module: M6 (`feature-scan`)** — all data-layer dependencies now satisfied (M1 ✅, M2 ✅, M3 ✅, M5-B ✅, M5-C ✅).
 
 ---
 
@@ -112,6 +123,9 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | J | `ScanApp` exposes `HiltWorkerFactory`; `@HiltWorker UploadWorker` picked up automatically | `ScanApp.kt` |
 | K | `CameraRepository.startCapture(lifecycleOwner, config)` — LifecycleOwner is explicit parameter (spec deviation D-2) | `CameraRepository.kt` |
 | L | `CameraRepository`/`CameraConfig`/`FrameResult`/`FrameRecord` live in `:data:data-camera` (spec deviation D-1 — not feature-scan) | `data-camera/CameraRepository.kt` |
+| P | `ArRepository.startSession(lifecycleOwner)` — deviation D-2; `getMeasurementFlow(w, h)` — deviation D-3; interface in `data-ar` — deviation D-1 | `data-ar/ArRepository.kt` |
+| Q | `ArSessionEvent.CameraShared(cameraId)` emitted by `startSession()` — deviation D-4; M6 uses it to wire CameraX SharedCamera | `ArRepository.kt`, `ArSessionManager.kt` |
+| R | `ArRepository`/`ARMeasurement`/`ArPoint`/`CameraPose`/`HitType`/`ArTrackingState` all live in `:data:data-ar` — same arch-§12 rationale as data-camera | `data-ar/ArDomainModels.kt`, `ArRepository.kt` |
 | M | `FrameRecord.absolutePath` = filename only from camera layer; `ScanViewModel` provides full path after writing file | `FrameRecord.kt` (design deviation D-3) |
 | N | `PackageSessionUseCase` + `PackagingScreen` belong in `feature-scan` (plan-M6), not `feature-upload` | (architecture §12 constraint) |
 | O | `ZipArtifact` in `feature-upload` is the nav-arg contract between PackagingScreen (scan) and UploadScreen; shape matches data_contracts.md §1.10 | `ZipArtifact.kt` |
@@ -132,7 +146,7 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | `:features:feature-selection` | `SelectionViewModelTest` (4) | `SelectionScreenTest` (2) |
 | `:features:feature-form` | `FormValidatorTest` (28), `FormViewModelTest` (13) | `FormScreenTest` (5) |
 | `:features:feature-upload` | `UploadZipUseCaseTest` (5), `UploadViewModelTest` (8), `UploadWorkerTest` (6), `MainDispatcherRule` | `PendingUploadDaoTest` (8), `UploadScreenTest` (6) |
-| `:data:data-ar` | — (stub) | — |
+| `:data:data-ar` | `MeasurementStateReducerTest` (14 tests), `TranslationCalculatorTest` (7 tests) | `DepthAvailabilityCheckerTest` (3 tests, device-conditional) |
 | `:features:feature-scan`, `:features:feature-upload` test totals | above | above |
 
 **Not yet executed:** `./gradlew test`, `./gradlew connectedAndroidTest`, `./gradlew assembleDebug` (since M0).
@@ -143,12 +157,12 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 
 | Risk | Status |
 |------|--------|
-| R-01 ARCore Depth API not available | Unmitigated until M3 (data-ar) fallback chain implemented |
+| R-01 ARCore Depth API not available | **Mitigated** — `DepthAvailabilityChecker` selects `AUTOMATIC` when available; hit-priority chain (DEPTH→PLANE→INSTANT_PLACEMENT→FEATURE_POINT) and `hitType` recorded per measurement |
 | R-02 CameraX 5 FPS not guaranteed by HAL | **Mitigated** — `TimestampGate(200ms)` + `setTargetFrameRate(5,5)` hint |
 | R-03 OOM during long scan | **Mitigated** — `STRATEGY_KEEP_ONLY_LATEST` + `MAX_FRAMES_IN_FLIGHT = 3` + ImageProxy closed before IO coroutine |
 | R-04 Focus/AE lock unsupported | **Mitigated** — Camera2Interop in `try/catch`; logs warning; scan continues with default AF/AE |
 | R-12 A-1/A-2 unresolved | **Ongoing** — placeholders in SelectionOptions/FormOptions; release-blocking |
-| R-13 ARCore session lifecycle leak | Unmitigated until M3 (ArSessionManager lifecycle observer) |
+| R-13 ARCore session lifecycle leak | **Mitigated** — `ArSessionManager : DefaultLifecycleObserver`; pause/resume/close wired to lifecycle; `ScanViewModel.onCleared()` calls `destroySession()` as safety net |
 | R-15 Firebase Storage rules misconfigured | Requires manual Firebase project deployment before M6 integration testing |
 | R-16 App killed mid-packaging | Mitigated by ZipBuilder atomic rename; PackagingScreen logic deferred to M6 |
 
@@ -156,16 +170,16 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 
 ## 9. Exact Next Implementation Step
 
-**Implement M3: `:data:data-ar`** per [docs/implementation_plan.md §3 (M3)](../docs/implementation_plan.md).
+**Implement M6: `:features:feature-scan`** — all dependencies now complete.
 
-Deliverables:
-1. Domain types: `ArRepository` interface, `ArSessionEvent` sealed class, `CameraRepository`-parallel contracts (all in `data-ar`) — same module-placement logic as data-camera.
-2. `ArSessionManager` — ARCore `Session` lifecycle via `DefaultLifecycleObserver`; `pause`/`resume`/`destroy`.
-3. `ArMeasurementPipeline` — state machine (IDLE → AWAITING_A → POINT_A → AWAITING_B → COMPLETE); center-pixel raycast; translation monitor; retry budget (30 frames); `hitType` fallback chain per TD-07.
-4. `DepthAvailabilityChecker`.
-5. `ArModule` Hilt binding.
-6. Constants: `AR_TRANSLATION_THRESHOLD_METERS = 0.30f`, `AR_RAYCAST_RETRY_BUDGET = 30`.
-7. Unit tests: state-machine transitions, translation computation, hit-type priority, retry budget exhaustion.
+Key deliverables:
+1. `ScanScreen` composable (camera preview + AR overlay + control bar) per screen_specs.md §5.
+2. `ScanViewModel` — coordinates `CameraRepository` + `ArRepository`; SharedCamera wiring via `CameraShared(cameraId)` event; `ScanUiState` machine (Initializing → Ready → Scanning → Stopping → Complete).
+3. `StartScanUseCase`, `StopScanUseCase`, `MonitorArMeasurementUseCase` — domain layer per architecture.md §2.1.
+4. `PackagingScreen` + `PackageSessionUseCase` — owned here per arch §12 (uses `ScanSession`).
+5. `ScanSession`, `FrameRecord` (full path populated here), `ARMeasurement` (imported from data-ar).
+6. `ScanDestination` + `PackagingDestination` route objects.
+7. `details.json` + `measurements.json` serialization via `kotlinx.serialization`.
 
 ---
 

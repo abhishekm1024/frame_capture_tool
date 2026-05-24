@@ -44,4 +44,8 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.turbine)
+
+    // Instrumented tests (ARCore runtime required for Session, DepthMode checks)
+    androidTestImplementation(libs.androidx.test.ext)
+    androidTestImplementation(libs.mockk.android)
 }

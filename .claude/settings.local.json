@@ -3,5 +3,8 @@
     "allow": [
       "Bash(xargs cat)"
     ]
+  },
+  "env": {
+    "ANTHROPIC_MODEL": "us.anthropic.claude-opus-4-6"
   }
 }

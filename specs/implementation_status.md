@@ -21,24 +21,25 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | M1-A | `:core:core-common` | ✅ Complete | `AppDispatchers`, `AppDispatchersModule`, `Result<T>`, `Logger`, `LoggerModule`, `StringExt`, `CollectionExt` |
 | M1-B | `:core:core-ui` | ✅ Complete | `ScanAppTheme`; `PrimaryButton`, `LabeledTextField`, `LoadingOverlay`, `ErrorBanner` |
 | M1-C | `:core:core-storage` | ✅ Complete | `SessionDirectoryManager`, `ZipBuilder` (atomic write via `.tmp` rename), `AppFileProvider`, `StorageConstants`, `StorageModule` |
-| M2 | `:data:data-camera` | ✅ Complete | `CameraRepository` + `CameraConfig` + `FrameResult` (interface lives here per arch §12); `FrameRecord`; `CameraConstants`; `TimestampGate` (AtomicLong CAS, init = -intervalMs); `YuvFrame`; `JpegFrameEncoder` (YUV→NV21→YuvImage→JPEG); `ResolutionPicker` (ResolutionFilter fallback chain); `CameraXFrameSource` (callbackFlow + STRATEGY_KEEP_ONLY_LATEST + Camera2Interop); `CameraRepositoryImpl`; `CameraModule` |
+| M2 | `:data:data-camera` | ✅ Complete | `CameraRepository` + `CameraConfig` + `FrameResult` (interface lives here per arch §12); `FrameRecord`; `CameraConstants`; `TimestampGate` (AtomicLong CAS, init = -intervalMs); `YuvFrame`; `JpegFrameEncoder` (YUV→NV21→YuvImage→JPEG); `ResolutionPicker` (ResolutionFilter fallback chain); `CameraXFrameSource` (callbackFlow + STRATEGY_KEEP_ONLY_LATEST + Camera2Interop + Preview use case binding + torch control + preferredCameraId filter for SharedCamera wiring); `CameraRepositoryImpl`; `CameraModule`. **M9 additions:** `CameraConfig.preferredCameraId`; `CameraRepository.setTorch()`; `startCapture(..., previewSurfaceProvider)`. |
 | M3 | `:data:data-ar` | ✅ Complete | `ArRepository` + `ArSessionEvent` (interface in data-ar per arch §12 deviation); `ArDomainModels` (`ArPoint`, `CameraPose`, `HitType`, `ArTrackingState`, `ARMeasurement`); `ArConstants` (`AR_TRANSLATION_THRESHOLD_METERS=0.30f`, `AR_RAYCAST_RETRY_BUDGET=30`); `TranslationCalculator` (pure JVM); `MeasurementState` (internal sealed class + `HitTypeAndPosition`); `MeasurementStateReducer` (pure function, JVM-testable, no ARCore dep); `DepthAvailabilityChecker`; `ArSessionManager` (`DefaultLifecycleObserver`; `SHARED_CAMERA` feature; emits `cameraId`); `ArMeasurementPipeline` (`flow{}` update loop; hit-type priority chain; retry budget; `flowOn(Default)`); `ArRepositoryImpl`; `ArModule` |
 | M4 | `:data:data-firebase` | ✅ Complete | `FirebaseRepository` + `FirebaseRepositoryImpl`; `AnonymousAuthSource`; `FirebaseStorageUploader` (`callbackFlow`); `UploadProgress`; `FirebaseConstants`; `FirebaseModule` |
 | M5-A | `:features:feature-splash` | ✅ Complete | `SplashScreen`, `SplashViewModel`, `SplashDestination`, `SplashUiEffect`; Lottie suspend pattern; `BackHandler { /* no-op */ }`; **placeholder Lottie JSON** |
 | M5-B | `:features:feature-selection` | ✅ Complete | `SelectionScreen` (+ `SelectionScreenContent`), `SelectionViewModel`, `SelectionDestination`, `SelectionUiState`, `SelectionUiEffect.NavigateToForm(selectionId)`, `SelectionOption`, `SelectionOptions` (TBD-A1 placeholders) |
 | M5-C | `:features:feature-form` | ✅ Complete | `FormScreen` (+ `FormScreenContent`), `FormViewModel` (`SavedStateHandle`), `FormDestination` (`route = "form/{selectionId}"`), `FormValidator`, `FormUiState`, `FormUiEffect.NavigateToScan(formData)`, `FormData` (`@Serializable`), `FormOptions` (TBD-A2 placeholders) |
 | M6 (user #) | `:features:feature-upload` | ✅ Complete | `UploadScreen` (+ `UploadScreenContent`), `UploadViewModel` (`@Inject internal constructor`), `UploadZipUseCase`, `UploadWorkEnqueuer`, `UploadWorker` (`@HiltWorker`), `ScanDatabase` (Room v1), `PendingUploadEntity`/`Dao`, `UploadQueueRepositoryImpl`, `UploadQueueModule`, `UploadDestination`, `ZipArtifact` (`@Serializable`), `PendingUpload`, `UploadUiState`, `UploadUiEffect` |
+| M6 | `:features:feature-scan` | ✅ Complete | `ScanScreen` + `ScanScreenContent` (full-bleed PreviewView, AR status chip, instruction banner, bottom control bar, error overlay); `ScanViewModel` (`@HiltViewModel internal class`; orchestrates AR + Camera + FrameWriter); `PackagingScreen` + `PackagingViewModel`; `ScanSession`, `FormDataSnapshot` (E-1 deviation), `PackagedSession` (E-1 deviation), `DetailsJson`, `MeasurementsJson` (+ Pose/Point JSON adapters); use cases (`StartScan`, `StopScan`, `MonitorArMeasurement`, `PackageSession`); `FrameWriter` (Channel capacity=4, DROP_OLDEST, 2-worker pool, decouples capture from disk latency); `ScanSessionHolder` (`@Singleton` transient bridge); `ScanDestination` + `PackagingDestination`; `ScanStrings`; `ScanUiState`/`ArDisplayState`/`ScanUiEffect`/`PackagingUiEffect` |
 
 **Plan-milestone naming reconciliation:**
 - Commit labels (M3, M4, M5) are the user's sequential session numbers, NOT plan milestone IDs.
-- Actual plan milestones completed: M0, M1-A/B/C, M2 (data-camera), M3 (data-ar), M4 (data-firebase), M5-A/B/C (UI features), plus plan-M7 (feature-upload implemented as user-M6).
-- Plan milestone **M6 (`feature-scan`)** is **not yet started** — stub only.
+- Actual plan milestones completed: M0, M1-A/B/C, M2 (data-camera), M3 (data-ar), M4 (data-firebase), M5-A/B/C (UI features), M6 (feature-scan, user-M9), plus plan-M7 (feature-upload, user-M6).
+- **All feature + data modules complete.** Remaining: M8 (`:app` NavHost integration) and M9 (testing & hardening).
 
 ---
 
 ## 2. Current Architecture State
 
-- **11-module Gradle project**, all declared. Stub: `:features:feature-scan` (build.gradle.kts only).
+- **11-module Gradle project**, all implemented. No stubs remaining.
 - **DI:** Hilt on every module. `ScanApp` wires `HiltWorkerFactory` for `UploadWorker`.
 - **AR pipeline (M3 complete):**
   - `ArRepository`/domain types (`ArPoint`, `CameraPose`, `HitType`, `ArTrackingState`, `ARMeasurement`) defined in **`data-ar`** (not feature-scan) per arch §12.
@@ -56,8 +57,14 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
   - `FrameRecord.absolutePath` is populated with filename only at camera layer; full path is set by `ScanViewModel` (feature-scan) after disk write.
   - Pipeline: `callbackFlow` + `STRATEGY_KEEP_ONLY_LATEST` + `TimestampGate(200ms)` + `AtomicInteger(inFlightCount < 3)` + `copyYuvPlanes` (sync, camera executor) + `imageProxy.close()` (before any suspend) + `JpegFrameEncoder` (IO dispatcher).
 - **Upload pipeline (user-M6 complete):**
-  - `PackageSessionUseCase` is **not** in `feature-upload` — deferred to `feature-scan` (plan-M6) per architecture §12 (feature-upload cannot depend on feature-scan's `ScanSession` type).
+  - `PackageSessionUseCase` lives in `feature-scan` (plan-M6, now ✅) per architecture §12.
   - `feature-upload` receives `ZipArtifact` via `zipArtifactJson` nav arg (URL-encoded JSON), not `ScanSession`.
+- **Scan pipeline (user-M9 / plan-M6 complete):**
+  - **Bounded async frame writing** (`FrameWriter`): `Channel(capacity=4, onBufferOverflow=DROP_OLDEST)` + 2 IO worker coroutines. Capture cadence is decoupled from disk write latency — exact 5 FPS is preserved even with slow storage. Peak memory: ~3.6 MB above baseline (4 queued + 2 in-flight × ~0.6 MB JPEG). Drops are silent at channel level; observable via `submittedCount - writtenCount` gap.
+  - **Camera + AR coordination:** ScanViewModel waits for BOTH `ArSessionEvent.CameraShared(cameraId)` AND `Preview.SurfaceProvider` (from ScanScreen) before binding CameraX (`bindCameraIfReady()`). Either ordering supported. CameraX's `CameraSelector` is filtered to use ARCore's chosen Camera2 camera ID (via `Camera2CameraInfo.from(it).cameraId`).
+  - **Active sink pattern:** Camera flow is collected continuously after binding; frames are submitted to `activeWriter` (`@Volatile`). Before `onStartScan()`, `activeWriter` is null and frames are discarded. After `onStartScan()`, frames flow into the `FrameWriter`. After `onStopScan()`, sink is cleared atomically and writer is drained.
+  - **`ScanSessionHolder`** (`@Singleton`): minimal API (`submit`/`consume`) for transient transfer of `ScanSession` between `ScanViewModel` and `PackagingViewModel`. Process-death behaviour documented in KDoc; PackagingViewModel routes to UploadScreen error state if holder is empty. **M10/M11 hardening:** replace with nav-graph-scoped ViewModel.
+  - **Permission flow:** ScanScreen launches camera permission via `rememberLauncherForActivityResult(RequestPermission())`. Result is forwarded to `ScanViewModel.onCameraPermissionResult()`. Denial transitions to `ScanUiState.Error(ERROR_PERMISSION_CAMERA)`.
 - **NavHost:** all 6 destinations declared; all bodies are placeholder `Box` composables. No feature screen wired yet (M8).
 - **MainActivity:** still uses raw `MaterialTheme {}` instead of `ScanAppTheme {}` — M8 concern.
 
@@ -86,7 +93,10 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | C-6 | `FormScreen` back-arrow lambda not yet wired in NavHost | `app/.../AppNavHost.kt` | M8 |
 | C-7 | `FormUiEffect.NavigateToScan` emits raw `FormData`; NavHost must URL-encode it | `FormViewModel.kt` | M8 |
 | C-8 | ~~`data-ar` is a pure stub~~ | ~~`data/data-ar/`~~ | ✅ Resolved in M3 |
-| C-9 | `feature-scan` is a pure stub (build.gradle.kts only) | `features/feature-scan/` | Plan-M6 |
+| C-9 | ~~`feature-scan` is a pure stub~~ | ~~`features/feature-scan/`~~ | ✅ Resolved in user-M9 (plan-M6) |
+| C-14 | `FormDataSnapshot` + `PackagedSession` are local mirrors of types in `feature-form`/`feature-upload`. JSON shape identical; same nav-arg JSON deserialises into either type. Consolidation into `core-common` deferred to M11. | `features/feature-scan/.../domain/model/FormDataSnapshot.kt`, `PackagedSession.kt` | M11 hardening |
+| C-15 | `ScanSessionHolder` (`@Singleton`) holds in-memory `ScanSession` between `ScanViewModel` and `PackagingViewModel`. Process-kill mid-handoff results in error path (UploadScreen shows error per screen_specs §6.5). Replace with nav-graph-scoped ViewModel in M10/M11. | `features/feature-scan/.../infra/ScanSessionHolder.kt` | M10/M11 hardening |
+| C-16 | `ScanViewModel.onCleared()` uses `runBlocking { arRepository.destroySession() }` as a Main-thread safety net for ARCore cleanup. Lifecycle observer in `ArSessionManager` handles teardown normally; runBlocking covers edge cases (Activity-side ordering issues). Brief block (~ms) on Main during ViewModel disposal. | `features/feature-scan/.../ScanViewModel.kt` | Acceptable; reassess if perf issue surfaces |
 | C-10 | `google-services.json` presence not verified | `:app/` | Verify before assembly |
 | C-11 | No `./gradlew assembleDebug` run since M0 — M2 additions unverified by build | n/a | Run before next session |
 | C-12 | `PackagingScreen` and `PackageSessionUseCase` deferred to `feature-scan` (plan-M6), not implemented in `feature-upload` | (design gap) | Implemented in plan-M6 per architecture §12 |
@@ -98,12 +108,12 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 
 | Plan milestone | Module | Status | Notes |
 |----------------|--------|--------|-------|
-| M3 | `:data:data-ar` | ✅ Complete | Implemented |
-| M6 | `:features:feature-scan` | 🔲 Not started | Depends on M1 ✅, M2 ✅, M3 ✅, M5-B ✅, M5-C ✅. Also owns `PackagingScreen` + `PackageSessionUseCase` |
-| M8 | `:app` integration | 🔲 Not started | Depends on all M5 ✅, M6, plan-M7 (feature-upload ✅). Resolves C-1, C-2, C-6, C-7 |
-| M9 | Testing & Hardening | 🔲 Not started | Depends on M8 |
+| M3 | `:data:data-ar` | ✅ Complete | |
+| M6 | `:features:feature-scan` | ✅ Complete | |
+| M8 | `:app` integration | 🔲 Not started | Depends on all M5 ✅, M6 ✅, plan-M7 (feature-upload ✅). Resolves C-1, C-2, C-6, C-7. Wires per-feature `*Destination.route` into NavHost; URL-encodes `FormData`/`PackagedSession` JSON when navigating; switches MainActivity to `ScanAppTheme`. |
+| M9 | Testing & Hardening | 🔲 Not started | Depends on M8. Includes integration tests on physical device. |
 
-**Recommended next module: M6 (`feature-scan`)** — all data-layer dependencies now satisfied (M1 ✅, M2 ✅, M3 ✅, M5-B ✅, M5-C ✅).
+**Recommended next module: M8 (`:app` NavHost integration)** — all feature/data modules now complete; M8 wires them into the navigation graph and unblocks end-to-end flow.
 
 ---
 
@@ -126,6 +136,13 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | P | `ArRepository.startSession(lifecycleOwner)` — deviation D-2; `getMeasurementFlow(w, h)` — deviation D-3; interface in `data-ar` — deviation D-1 | `data-ar/ArRepository.kt` |
 | Q | `ArSessionEvent.CameraShared(cameraId)` emitted by `startSession()` — deviation D-4; M6 uses it to wire CameraX SharedCamera | `ArRepository.kt`, `ArSessionManager.kt` |
 | R | `ArRepository`/`ARMeasurement`/`ArPoint`/`CameraPose`/`HitType`/`ArTrackingState` all live in `:data:data-ar` — same arch-§12 rationale as data-camera | `data-ar/ArDomainModels.kt`, `ArRepository.kt` |
+| S | `CameraRepository.startCapture(..., previewSurfaceProvider)` accepts a `Preview.SurfaceProvider`; `CameraXFrameSource` binds a `Preview` use case alongside `ImageAnalysis` when non-null (deviation D-5) | `data-camera/CameraRepository.kt`, `CameraXFrameSource.kt` |
+| T | `CameraRepository.setTorch(on: Boolean): Boolean` (deviation D-6) returns false if no camera is currently bound; M9 calls this for torch toggle | `data-camera/CameraRepository.kt`, `CameraRepositoryImpl.kt` |
+| U | `CameraConfig.preferredCameraId: String?` (deviation D-7) tells `CameraXFrameSource` to filter `CameraSelector` to a specific Camera2 ID — required for ARCore SharedCamera wiring | `data-camera/CameraRepository.kt`, `CameraXFrameSource.kt` |
+| V | `ScanDestination.route = "scan/{formDataJson}"`, `ARG_FORM_DATA = "formDataJson"`; `ScanViewModel` decodes nav arg into `FormDataSnapshot` (JSON-shape mirror of feature-form's `FormData`) | `feature-scan/ScanDestination.kt`, `ScanViewModel.kt` |
+| W | `PackagedSession` (feature-scan) and `ZipArtifact` (feature-upload) have identical JSON shape; the URL-encoded JSON nav arg `zipArtifactJson` deserialises into either | `feature-scan/.../PackagedSession.kt`, `feature-upload/ZipArtifact.kt` |
+| X | `ScanUiEffect.NavigateToPackaging` carries no payload; ScanSession is deposited in `ScanSessionHolder` before navigation; `PackagingViewModel.init` calls `sessionHolder.consume()` and routes to upload error on null | `feature-scan/ScanUiEffect.kt`, `PackagingViewModel.kt`, `ScanSessionHolder.kt` |
+| Y | `PackagingUiEffect.NavigateToUpload(zipArtifactJson)` and `NavigateToUploadWithError(message)` — NavHost (M8) routes the latter to UploadScreen's error variant per screen_specs §6.5 | `feature-scan/PackagingUiEffect.kt` |
 | M | `FrameRecord.absolutePath` = filename only from camera layer; `ScanViewModel` provides full path after writing file | `FrameRecord.kt` (design deviation D-3) |
 | N | `PackageSessionUseCase` + `PackagingScreen` belong in `feature-scan` (plan-M6), not `feature-upload` | (architecture §12 constraint) |
 | O | `ZipArtifact` in `feature-upload` is the nav-arg contract between PackagingScreen (scan) and UploadScreen; shape matches data_contracts.md §1.10 | `ZipArtifact.kt` |
@@ -147,6 +164,7 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | `:features:feature-form` | `FormValidatorTest` (28), `FormViewModelTest` (13) | `FormScreenTest` (5) |
 | `:features:feature-upload` | `UploadZipUseCaseTest` (5), `UploadViewModelTest` (8), `UploadWorkerTest` (6), `MainDispatcherRule` | `PendingUploadDaoTest` (8), `UploadScreenTest` (6) |
 | `:data:data-ar` | `MeasurementStateReducerTest` (14 tests), `TranslationCalculatorTest` (7 tests) | `DepthAvailabilityCheckerTest` (3 tests, device-conditional) |
+| `:features:feature-scan` | `StopScanUseCaseTest` (5 tests), `ScanViewModelTest` (10 tests), `FrameWriterTest` (5 tests), `MainDispatcherRule` | `PackageSessionUseCaseTest` (5 tests, ZIP integration), `ScanScreenTest` (5 tests) |
 | `:features:feature-scan`, `:features:feature-upload` test totals | above | above |
 
 **Not yet executed:** `./gradlew test`, `./gradlew connectedAndroidTest`, `./gradlew assembleDebug` (since M0).
@@ -170,16 +188,23 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 
 ## 9. Exact Next Implementation Step
 
-**Implement M6: `:features:feature-scan`** — all dependencies now complete.
+**Implement M8: `:app` NavHost integration.**
 
 Key deliverables:
-1. `ScanScreen` composable (camera preview + AR overlay + control bar) per screen_specs.md §5.
-2. `ScanViewModel` — coordinates `CameraRepository` + `ArRepository`; SharedCamera wiring via `CameraShared(cameraId)` event; `ScanUiState` machine (Initializing → Ready → Scanning → Stopping → Complete).
-3. `StartScanUseCase`, `StopScanUseCase`, `MonitorArMeasurementUseCase` — domain layer per architecture.md §2.1.
-4. `PackagingScreen` + `PackageSessionUseCase` — owned here per arch §12 (uses `ScanSession`).
-5. `ScanSession`, `FrameRecord` (full path populated here), `ARMeasurement` (imported from data-ar).
-6. `ScanDestination` + `PackagingDestination` route objects.
-7. `details.json` + `measurements.json` serialization via `kotlinx.serialization`.
+1. Replace placeholder `Box` composables in [AppNavHost.kt](../app/src/main/kotlin/com/sfm/scanner/navigation/AppNavHost.kt) with real feature screens (`SplashScreen`, `SelectionScreen`, `FormScreen`, `ScanScreen`, `PackagingScreen`, `UploadScreen`).
+2. Reconcile `Routes` (app) with per-feature `*Destination` objects (resolves C-1). Recommended: delete `Routes.kt`, use each feature's `*Destination.route` directly in `composable(route = ...)`.
+3. Wire navigation callbacks:
+   - Splash → Selection (`popUpTo("splash") { inclusive = true }`)
+   - Selection → Form (`createRoute(selectionId)`)
+   - Form → Scan: URL-encode the raw `FormData` JSON before navigation (resolves C-7)
+   - Scan → Packaging
+   - Packaging → Upload: pass `zipArtifactJson` from `PackagingUiEffect.NavigateToUpload` (already URL-encoded)
+   - Upload "Start New Scan" → `popUpTo("selection") { inclusive = false }`
+4. Switch [MainActivity.kt](../app/src/main/kotlin/com/sfm/scanner/MainActivity.kt) to use `ScanAppTheme { AppNavHost() }` (resolves C-2).
+5. Handle `ScanUiEffect.RequestArInstall` in `ScanScreen` callback → call `ArCoreApk.requestInstall(activity, ...)` from the Activity.
+6. Verify `google-services.json` is present (resolves C-10) and run `./gradlew assembleDebug` (resolves C-11).
+
+After M8, plan-M9 (testing & hardening) can begin: device E2E tests, stress tests for OOM (R-03) and ARCore tracking loss (R-05), Firebase storage-rules verification (R-15).
 
 ---
 

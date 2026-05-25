@@ -7,11 +7,14 @@ import android.hardware.camera2.CaptureRequest
 import android.os.SystemClock
 import android.util.Log
 import android.util.Range
+import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
@@ -48,11 +51,13 @@ internal class CameraXFrameSource(
 
     @Volatile private var cameraProvider: ProcessCameraProvider? = null
     @Volatile private var activeAnalysis: ImageAnalysis? = null
+    @Volatile private var activeCamera: Camera? = null
     @Volatile private var cameraExecutor: ExecutorService? = null
 
     fun asFlow(
         lifecycleOwner: LifecycleOwner,
         config: CameraConfig,
+        previewSurfaceProvider: Preview.SurfaceProvider?,
     ): Flow<FrameResult> = callbackFlow {
         timestampGate.reset()
         frameCounter.set(0)
@@ -64,6 +69,10 @@ internal class CameraXFrameSource(
         val imageAnalysis = buildImageAnalysis(config)
         activeAnalysis = imageAnalysis
 
+        val preview = previewSurfaceProvider?.let { provider ->
+            Preview.Builder().build().also { it.surfaceProvider = provider }
+        }
+
         val producerScope = this
 
         imageAnalysis.setAnalyzer(executor) { imageProxy ->
@@ -73,11 +82,16 @@ internal class CameraXFrameSource(
         val provider = acquireCameraProvider()
         cameraProvider = provider
 
+        val cameraSelector = buildCameraSelector(config.preferredCameraId)
+
         withContext(dispatchers.main) {
-            provider.bindToLifecycle(
+            // Unbind any previous bindings to avoid lingering use cases on rebind
+            runCatching { provider.unbindAll() }
+            val useCases = listOfNotNull(preview, imageAnalysis).toTypedArray()
+            activeCamera = provider.bindToLifecycle(
                 lifecycleOwner,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                imageAnalysis,
+                cameraSelector,
+                *useCases,
             )
         }
 
@@ -86,6 +100,7 @@ internal class CameraXFrameSource(
             runCatching { executor.shutdown() }
             cameraProvider = null
             activeAnalysis = null
+            activeCamera = null
             cameraExecutor = null
         }
     }
@@ -95,6 +110,45 @@ internal class CameraXFrameSource(
             runCatching { cameraProvider?.unbindAll() }
         }
         runCatching { activeAnalysis?.clearAnalyzer() }
+        activeCamera = null
+    }
+
+    suspend fun setTorch(on: Boolean): Boolean {
+        val camera = activeCamera ?: return false
+        return try {
+            withContext(dispatchers.main) {
+                suspendCancellableCoroutine<Boolean> { cont ->
+                    val future = camera.cameraControl.enableTorch(on)
+                    future.addListener(
+                        {
+                            try {
+                                future.get()
+                                cont.resume(true)
+                            } catch (e: Exception) {
+                                Log.w(LOG_TAG, "setTorch($on) failed: ${e.message}")
+                                cont.resume(false)
+                            }
+                        },
+                        ContextCompat.getMainExecutor(context),
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(LOG_TAG, "setTorch wrapping failure: ${e.message}")
+            false
+        }
+    }
+
+    private fun buildCameraSelector(preferredCameraId: String?): CameraSelector {
+        if (preferredCameraId == null) return CameraSelector.DEFAULT_BACK_CAMERA
+        return CameraSelector.Builder()
+            .addCameraFilter { infos ->
+                val match = infos.firstOrNull {
+                    Camera2CameraInfo.from(it).cameraId == preferredCameraId
+                }
+                if (match != null) listOf(match) else infos
+            }
+            .build()
     }
 
     private fun processFrame(

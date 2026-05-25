@@ -47,8 +47,12 @@ dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
+    implementation(libs.activity.compose) // BackHandler, rememberLauncherForActivityResult
 
-    // Serialization — FormData deserialized from nav arg
+    // CameraX PreviewView (required by ScanScreen)
+    implementation(libs.camerax.view)
+
+    // Serialization — FormData deserialised from nav arg; PackagedSession serialised to nav arg
     implementation(libs.kotlinx.serialization.json)
 
     // Hilt
@@ -60,4 +64,11 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.turbine)
+
+    // Instrumented tests
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.ext)
+    androidTestImplementation(libs.coroutines.test)
+    debugImplementation(libs.compose.ui.test.manifest)
 }

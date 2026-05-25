@@ -1,9 +1,9 @@
 # Implementation Status
 ## Android SfM Scanning App
 
-**Date:** 2026-05-24
+**Date:** 2026-05-25
 **Branch:** `dev`
-**Last commit:** `9a215b8 M5 Completed` (commit labels are sequential user numbers, not plan milestone IDs — see §1)
+**Last commit:** `94560e3 M7 Implemented` (commit labels are sequential user numbers, not plan milestone IDs — see §1)
 **Source of truth for plan:** [docs/implementation_plan.md](../docs/implementation_plan.md)
 
 This document is a precise snapshot for session handoff. Verify against the working tree before acting on any item.
@@ -17,7 +17,8 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | Plan milestone | Module | Status | Key source files |
 |----------------|--------|--------|------------------|
 | M0 | Project scaffold | ✅ Complete | 11 modules declared in [settings.gradle.kts](../settings.gradle.kts); version catalog at [gradle/libs.versions.toml](../gradle/libs.versions.toml) |
-| M0 | `:app` skeleton | ✅ Complete | `ScanApp.kt` (`@HiltAndroidApp` + `Configuration.Provider`); `MainActivity.kt` (`enableEdgeToEdge`, hosts `AppNavHost`); `AppNavHost.kt` (6 routes, **all bodies are placeholder `Box` composables**); `Routes.kt` |
+| M0 | `:app` skeleton | ✅ Complete | `ScanApp.kt` (`@HiltAndroidApp` + `Configuration.Provider`); `MainActivity.kt`; `AppNavHost.kt`; `Routes.kt` — fully wired in user-M10 (plan-M8) |
+| M8 (plan) / user-M10 | `:app` integration | ✅ Complete | `MainActivity.kt` (`ScanAppTheme` + ARCore install handler); `AppNavHost.kt` (real feature screens, `popUpTo` rules, URL-encoded `formDataJson` nav arg, packaging-failure routes to UploadScreen via empty-`absolutePath` `ZipArtifact`); `Routes.kt` (re-exports `*Destination.route` from feature modules, resolves C-1); `NavArgEncoding.kt` (centralised `FormData` JSON encoder + failed-artifact builder) |
 | M1-A | `:core:core-common` | ✅ Complete | `AppDispatchers`, `AppDispatchersModule`, `Result<T>`, `Logger`, `LoggerModule`, `StringExt`, `CollectionExt` |
 | M1-B | `:core:core-ui` | ✅ Complete | `ScanAppTheme`; `PrimaryButton`, `LabeledTextField`, `LoadingOverlay`, `ErrorBanner` |
 | M1-C | `:core:core-storage` | ✅ Complete | `SessionDirectoryManager`, `ZipBuilder` (atomic write via `.tmp` rename), `AppFileProvider`, `StorageConstants`, `StorageModule` |
@@ -33,7 +34,7 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 **Plan-milestone naming reconciliation:**
 - Commit labels (M3, M4, M5) are the user's sequential session numbers, NOT plan milestone IDs.
 - Actual plan milestones completed: M0, M1-A/B/C, M2 (data-camera), M3 (data-ar), M4 (data-firebase), M5-A/B/C (UI features), M6 (feature-scan, user-M9), plus plan-M7 (feature-upload, user-M6).
-- **All feature + data modules complete.** Remaining: M8 (`:app` NavHost integration) and M9 (testing & hardening).
+- **All feature + data + integration modules complete.** Remaining: M9 (testing & hardening on physical device).
 
 ---
 
@@ -65,8 +66,8 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
   - **Active sink pattern:** Camera flow is collected continuously after binding; frames are submitted to `activeWriter` (`@Volatile`). Before `onStartScan()`, `activeWriter` is null and frames are discarded. After `onStartScan()`, frames flow into the `FrameWriter`. After `onStopScan()`, sink is cleared atomically and writer is drained.
   - **`ScanSessionHolder`** (`@Singleton`): minimal API (`submit`/`consume`) for transient transfer of `ScanSession` between `ScanViewModel` and `PackagingViewModel`. Process-death behaviour documented in KDoc; PackagingViewModel routes to UploadScreen error state if holder is empty. **M10/M11 hardening:** replace with nav-graph-scoped ViewModel.
   - **Permission flow:** ScanScreen launches camera permission via `rememberLauncherForActivityResult(RequestPermission())`. Result is forwarded to `ScanViewModel.onCameraPermissionResult()`. Denial transitions to `ScanUiState.Error(ERROR_PERMISSION_CAMERA)`.
-- **NavHost:** all 6 destinations declared; all bodies are placeholder `Box` composables. No feature screen wired yet (M8).
-- **MainActivity:** still uses raw `MaterialTheme {}` instead of `ScanAppTheme {}` — M8 concern.
+- **NavHost (user-M10 / plan-M8 complete):** all 6 destinations wired with real feature screens; per-feature `*Destination.route` consumed directly (resolves C-1). Pop-up rules: Splash→Selection pops Splash inclusive; Scan→Packaging pops Scan inclusive; Packaging→Upload pops Packaging inclusive; Upload "Start New Scan" pops to Selection inclusive=false. `formDataJson` URL-encoded via `NavArgEncoding.encodeFormData()` (resolves C-7). `PackagingUiEffect.NavigateToUploadWithError` builds a synthetic empty-`absolutePath` `ZipArtifact` so `UploadZipUseCase` short-circuits to `Failed` (per screen_specs §6.5).
+- **MainActivity (user-M10 / plan-M8 complete):** wraps `AppNavHost` in `ScanAppTheme` (resolves C-2). Owns ARCore `requestInstall` handler — invoked via lambda parameter when `ScanUiEffect.RequestArInstall` fires.
 
 ---
 
@@ -85,22 +86,22 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 
 | ID | Concern | Where | Resolution path |
 |----|---------|-------|-----------------|
-| C-1 | `Routes.FORM = "form"` (no arg) but `FormDestination.route = "form/{selectionId}"` — NavHost out of sync | [Routes.kt](../app/src/main/kotlin/com/sfm/scanner/navigation/Routes.kt) | M8: NavHost uses per-feature `*Destination.route` directly |
-| C-2 | `MainActivity` wraps in `MaterialTheme {}` not `ScanAppTheme {}` | [MainActivity.kt](../app/src/main/kotlin/com/sfm/scanner/MainActivity.kt) | M8 |
+| C-1 | ~~`Routes.FORM = "form"` vs. `FormDestination.route = "form/{selectionId}"`~~ | ~~`Routes.kt`~~ | ✅ Resolved in user-M10 (Routes re-exports `*Destination.route`) |
+| C-2 | ~~`MainActivity` wraps in `MaterialTheme {}` not `ScanAppTheme {}`~~ | ~~`MainActivity.kt`~~ | ✅ Resolved in user-M10 |
 | C-3 | Lottie splash asset is a placeholder | `features/feature-splash/src/main/res/raw/splash_logo.json` | Replace file at release |
 | C-4 | `[TBD-A1]` placeholder options in SelectionScreen | `features/feature-selection/.../SelectionOptions.kt` | One-file replacement when owner provides values |
 | C-5 | `[TBD-A2]` placeholder dropdown options in FormScreen | `features/feature-form/.../FormOptions.kt` | One-file replacement |
-| C-6 | `FormScreen` back-arrow lambda not yet wired in NavHost | `app/.../AppNavHost.kt` | M8 |
-| C-7 | `FormUiEffect.NavigateToScan` emits raw `FormData`; NavHost must URL-encode it | `FormViewModel.kt` | M8 |
+| C-6 | ~~`FormScreen` back-arrow lambda not yet wired in NavHost~~ | ~~`AppNavHost.kt`~~ | ✅ Resolved in user-M10 (`navController.popBackStack()`) |
+| C-7 | ~~`FormUiEffect.NavigateToScan` emits raw `FormData`~~ | ~~`FormViewModel.kt`~~ | ✅ Resolved in user-M10 (`NavArgEncoding.encodeFormData()` URL-encodes at NavHost boundary) |
 | C-8 | ~~`data-ar` is a pure stub~~ | ~~`data/data-ar/`~~ | ✅ Resolved in M3 |
 | C-9 | ~~`feature-scan` is a pure stub~~ | ~~`features/feature-scan/`~~ | ✅ Resolved in user-M9 (plan-M6) |
 | C-14 | `FormDataSnapshot` + `PackagedSession` are local mirrors of types in `feature-form`/`feature-upload`. JSON shape identical; same nav-arg JSON deserialises into either type. Consolidation into `core-common` deferred to M11. | `features/feature-scan/.../domain/model/FormDataSnapshot.kt`, `PackagedSession.kt` | M11 hardening |
 | C-15 | `ScanSessionHolder` (`@Singleton`) holds in-memory `ScanSession` between `ScanViewModel` and `PackagingViewModel`. Process-kill mid-handoff results in error path (UploadScreen shows error per screen_specs §6.5). Replace with nav-graph-scoped ViewModel in M10/M11. | `features/feature-scan/.../infra/ScanSessionHolder.kt` | M10/M11 hardening |
 | C-16 | `ScanViewModel.onCleared()` uses `runBlocking { arRepository.destroySession() }` as a Main-thread safety net for ARCore cleanup. Lifecycle observer in `ArSessionManager` handles teardown normally; runBlocking covers edge cases (Activity-side ordering issues). Brief block (~ms) on Main during ViewModel disposal. | `features/feature-scan/.../ScanViewModel.kt` | Acceptable; reassess if perf issue surfaces |
-| C-10 | `google-services.json` presence not verified | `:app/` | Verify before assembly |
-| C-11 | No `./gradlew assembleDebug` run since M0 — M2 additions unverified by build | n/a | Run before next session |
+| C-10 | `google-services.json` is missing in `:app/`. `compileDebugKotlin` succeeds but `assembleDebug` will fail at the `google-services` Gradle plugin step. Manual step before first device build. | `:app/google-services.json` | Owner-supplied; required for M9 device tests |
+| C-11 | No `./gradlew assembleDebug` run since M0 — full build chain not verified. Wrapper JAR restored in user-M11 (`gradle-8.9-wrapper.jar`, SHA-256 verified against `services.gradle.org/distributions/gradle-8.9-wrapper.jar.sha256`); `./gradlew --version` confirms Gradle 8.9 + JVM 17. Still need `google-services.json` to complete `assembleDebug`. | n/a | Supply `google-services.json` then run `./gradlew assembleDebug` |
 | C-12 | `PackagingScreen` and `PackageSessionUseCase` deferred to `feature-scan` (plan-M6), not implemented in `feature-upload` | (design gap) | Implemented in plan-M6 per architecture §12 |
-| C-13 | `feature-upload.UploadScreen` hard-codes `BackHandler { }` but `PackagingScreen` has no module yet; UploadScreen will be unreachable until NavHost (M8) wires the `upload/{zipArtifactJson}` route from PackagingScreen | `AppNavHost.kt` | M8 + plan-M6 |
+| C-13 | ~~UploadScreen unreachable until NavHost wires `upload/{zipArtifactJson}` route~~ | ~~`AppNavHost.kt`~~ | ✅ Resolved in user-M10 |
 
 ---
 
@@ -110,10 +111,10 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 |----------------|--------|--------|-------|
 | M3 | `:data:data-ar` | ✅ Complete | |
 | M6 | `:features:feature-scan` | ✅ Complete | |
-| M8 | `:app` integration | 🔲 Not started | Depends on all M5 ✅, M6 ✅, plan-M7 (feature-upload ✅). Resolves C-1, C-2, C-6, C-7. Wires per-feature `*Destination.route` into NavHost; URL-encodes `FormData`/`PackagedSession` JSON when navigating; switches MainActivity to `ScanAppTheme`. |
-| M9 | Testing & Hardening | 🔲 Not started | Depends on M8. Includes integration tests on physical device. |
+| M8 (plan) / user-M10 | `:app` integration | ✅ Complete | All 6 destinations wired; C-1, C-2, C-6, C-7, C-13 resolved. `NavArgEncoding` centralises URL-encoded JSON nav-arg conversion. |
+| M9 | Testing & Hardening | 🔲 Not started | Depends on M8. Includes integration tests on physical device + `google-services.json` to enable `assembleDebug`. |
 
-**Recommended next module: M8 (`:app` NavHost integration)** — all feature/data modules now complete; M8 wires them into the navigation graph and unblocks end-to-end flow.
+**Recommended next module: M9 (Testing & Hardening)** — integration is complete; remaining work is device-level E2E validation and lint/Detekt cleanup.
 
 ---
 
@@ -153,7 +154,7 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 
 | Module | Unit tests (`src/test/`) | Instrumented (`src/androidTest/`) |
 |--------|--------------------------|------------------------------------|
-| `:app` | `RoutesTest` (8) | — |
+| `:app` | `RoutesTest` (8, updated for C-1 resolution), `NavArgEncodingTest` (6, FormData/ZipArtifact round-trip + URL safety), `AppNavHostRouteTest` (8, cross-module route/arg consistency) | — |
 | `:core:core-common` | `ResultTest`, `AppDispatchersModuleTest`, `ext/StringExtTest` | — |
 | `:core:core-ui` | — | `PrimaryButtonTest`, `LabeledTextFieldTest`, `LoadingOverlayTest`, `ErrorBannerTest` |
 | `:core:core-storage` | `ZipBuilderTest`, `SessionDirectoryManagerTest`, `AppFileProviderTest` | — |
@@ -188,23 +189,17 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 
 ## 9. Exact Next Implementation Step
 
-**Implement M8: `:app` NavHost integration.**
+**Implement plan-M9: Testing & Hardening (user-M11).**
 
-Key deliverables:
-1. Replace placeholder `Box` composables in [AppNavHost.kt](../app/src/main/kotlin/com/sfm/scanner/navigation/AppNavHost.kt) with real feature screens (`SplashScreen`, `SelectionScreen`, `FormScreen`, `ScanScreen`, `PackagingScreen`, `UploadScreen`).
-2. Reconcile `Routes` (app) with per-feature `*Destination` objects (resolves C-1). Recommended: delete `Routes.kt`, use each feature's `*Destination.route` directly in `composable(route = ...)`.
-3. Wire navigation callbacks:
-   - Splash → Selection (`popUpTo("splash") { inclusive = true }`)
-   - Selection → Form (`createRoute(selectionId)`)
-   - Form → Scan: URL-encode the raw `FormData` JSON before navigation (resolves C-7)
-   - Scan → Packaging
-   - Packaging → Upload: pass `zipArtifactJson` from `PackagingUiEffect.NavigateToUpload` (already URL-encoded)
-   - Upload "Start New Scan" → `popUpTo("selection") { inclusive = false }`
-4. Switch [MainActivity.kt](../app/src/main/kotlin/com/sfm/scanner/MainActivity.kt) to use `ScanAppTheme { AppNavHost() }` (resolves C-2).
-5. Handle `ScanUiEffect.RequestArInstall` in `ScanScreen` callback → call `ArCoreApk.requestInstall(activity, ...)` from the Activity.
-6. Verify `google-services.json` is present (resolves C-10) and run `./gradlew assembleDebug` (resolves C-11).
+Key deliverables (per implementation_plan.md §M9):
+1. Add `google-services.json` to `:app/` so `./gradlew assembleDebug` succeeds (resolves C-10, C-17).
+2. Run the full unit-test suite (`./gradlew test`) and address any failures.
+3. Physical-device E2E walkthrough: Splash → Selection → Form → Scan (≥10 frames + AR distance) → Packaging → Upload → Success → "Start New Scan" → Selection.
+4. Offline-upload retry validation: airplane mode → trigger upload → confirm `UploadStage.RetryQueued` → restore network → confirm WorkManager re-runs `UploadWorker` and completes upload.
+5. Stress tests: OOM under 5-minute scan (R-03); ARCore tracking loss recovery (R-05); Firebase Storage rules deployment (R-15).
+6. Lint: `./gradlew lint`; address all errors.
 
-After M8, plan-M9 (testing & hardening) can begin: device E2E tests, stress tests for OOM (R-03) and ARCore tracking loss (R-05), Firebase storage-rules verification (R-15).
+The integration milestone (plan-M8 / user-M10) is now complete — all 6 screens wired, nav-arg JSON contract validated by unit tests, MainActivity correctly hosting `ScanAppTheme` with ARCore install passthrough.
 
 ---
 

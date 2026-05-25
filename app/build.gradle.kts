@@ -75,6 +75,11 @@ dependencies {
     implementation(project(":data:data-ar"))
     implementation(project(":data:data-firebase"))
 
+    // ARCore: MainActivity invokes ArCoreApk.requestInstall directly when forwarding
+    // ScanUiEffect.RequestArInstall. The class is also present transitively via
+    // :data:data-ar, but Gradle compile-classpath isolation requires an explicit dep here.
+    implementation(libs.arcore)
+
     // AndroidX Core
     implementation(libs.core.ktx)
     implementation(libs.activity.compose)

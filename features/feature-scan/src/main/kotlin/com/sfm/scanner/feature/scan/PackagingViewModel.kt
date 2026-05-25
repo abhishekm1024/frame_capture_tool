@@ -26,7 +26,7 @@ import javax.inject.Inject
  * shows the failure state per screen_specs §6.5.
  */
 @HiltViewModel
-internal class PackagingViewModel @Inject constructor(
+class PackagingViewModel @Inject internal constructor(
     private val packageSessionUseCase: PackageSessionUseCase,
     private val sessionHolder: ScanSessionHolder,
     private val dispatchers: AppDispatchers,

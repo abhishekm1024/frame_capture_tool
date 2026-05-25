@@ -65,7 +65,7 @@ import javax.inject.Inject
  *     and submits to the writer (or drops if null).
  */
 @HiltViewModel
-internal class ScanViewModel @Inject constructor(
+class ScanViewModel @Inject internal constructor(
     savedStateHandle: SavedStateHandle,
     private val arRepository: ArRepository,
     private val cameraRepository: CameraRepository,

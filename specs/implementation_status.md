@@ -4,6 +4,7 @@
 **Date:** 2026-05-25
 **Branch:** `dev`
 **Last commit:** `94560e3 M7 Implemented` (commit labels are sequential user numbers, not plan milestone IDs — see §1)
+**Last successful build:** user-M13 — `./gradlew assembleDebug` BUILD SUCCESSFUL with zero warnings; `./gradlew test` all green
 **Source of truth for plan:** [docs/implementation_plan.md](../docs/implementation_plan.md)
 
 This document is a precise snapshot for session handoff. Verify against the working tree before acting on any item.
@@ -19,6 +20,7 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | M0 | Project scaffold | ✅ Complete | 11 modules declared in [settings.gradle.kts](../settings.gradle.kts); version catalog at [gradle/libs.versions.toml](../gradle/libs.versions.toml) |
 | M0 | `:app` skeleton | ✅ Complete | `ScanApp.kt` (`@HiltAndroidApp` + `Configuration.Provider`); `MainActivity.kt`; `AppNavHost.kt`; `Routes.kt` — fully wired in user-M10 (plan-M8) |
 | M8 (plan) / user-M10 | `:app` integration | ✅ Complete | `MainActivity.kt` (`ScanAppTheme` + ARCore install handler); `AppNavHost.kt` (real feature screens, `popUpTo` rules, URL-encoded `formDataJson` nav arg, packaging-failure routes to UploadScreen via empty-`absolutePath` `ZipArtifact`); `Routes.kt` (re-exports `*Destination.route` from feature modules, resolves C-1); `NavArgEncoding.kt` (centralised `FormData` JSON encoder + failed-artifact builder) |
+| M11 (user-M13) | Production hardening audit | ✅ Complete | C-19 (`ArSessionEvent.Ready` now actually emitted from `ArRepositoryImpl.startSession()`); C-21 (`ZipBuilder` made stateless — `ZipWriteScope` per call instead of `lateinit var` field); C-22 (dead `Logger`/`LoggerModule`/`AndroidLogger` + unused `StringExt`/`CollectionExt` files deleted); `JpegFrameEncoder` hoisted out of per-frame path in `CameraXFrameSource`; `LocalLifecycleOwner` import updated; `@file:OptIn(ExperimentalCamera2Interop)` removed (no longer required); `UploadZipUseCaseTest` opt-in added; `firebase/storage.rules` baseline tracked; `ScanSessionHolder` KDoc corrected to drop a phantom function reference |
 | M1-A | `:core:core-common` | ✅ Complete | `AppDispatchers`, `AppDispatchersModule`, `Result<T>`, `Logger`, `LoggerModule`, `StringExt`, `CollectionExt` |
 | M1-B | `:core:core-ui` | ✅ Complete | `ScanAppTheme`; `PrimaryButton`, `LabeledTextField`, `LoadingOverlay`, `ErrorBanner` |
 | M1-C | `:core:core-storage` | ✅ Complete | `SessionDirectoryManager`, `ZipBuilder` (atomic write via `.tmp` rename), `AppFileProvider`, `StorageConstants`, `StorageModule` |
@@ -33,8 +35,8 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 
 **Plan-milestone naming reconciliation:**
 - Commit labels (M3, M4, M5) are the user's sequential session numbers, NOT plan milestone IDs.
-- Actual plan milestones completed: M0, M1-A/B/C, M2 (data-camera), M3 (data-ar), M4 (data-firebase), M5-A/B/C (UI features), M6 (feature-scan, user-M9), plus plan-M7 (feature-upload, user-M6).
-- **All feature + data + integration modules complete.** Remaining: M9 (testing & hardening on physical device).
+- Actual plan milestones completed: M0, M1-A/B/C, M2 (data-camera), M3 (data-ar), M4 (data-firebase), M5-A/B/C (UI features), M6 (feature-scan, user-M9), plus plan-M7 (feature-upload, user-M6), plan-M8 integration (user-M10), build infra (user-M11/M12), production hardening audit (user-M13).
+- **All feature + data + integration modules complete.** Remaining: plan-M9 device-level testing + R-15 deployment.
 
 ---
 
@@ -98,10 +100,16 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | C-14 | `FormDataSnapshot` + `PackagedSession` are local mirrors of types in `feature-form`/`feature-upload`. JSON shape identical; same nav-arg JSON deserialises into either type. Consolidation into `core-common` deferred to M11. | `features/feature-scan/.../domain/model/FormDataSnapshot.kt`, `PackagedSession.kt` | M11 hardening |
 | C-15 | `ScanSessionHolder` (`@Singleton`) holds in-memory `ScanSession` between `ScanViewModel` and `PackagingViewModel`. Process-kill mid-handoff results in error path (UploadScreen shows error per screen_specs §6.5). Replace with nav-graph-scoped ViewModel in M10/M11. | `features/feature-scan/.../infra/ScanSessionHolder.kt` | M10/M11 hardening |
 | C-16 | `ScanViewModel.onCleared()` uses `runBlocking { arRepository.destroySession() }` as a Main-thread safety net for ARCore cleanup. Lifecycle observer in `ArSessionManager` handles teardown normally; runBlocking covers edge cases (Activity-side ordering issues). Brief block (~ms) on Main during ViewModel disposal. | `features/feature-scan/.../ScanViewModel.kt` | Acceptable; reassess if perf issue surfaces |
-| C-10 | `google-services.json` is missing in `:app/`. `compileDebugKotlin` succeeds but `assembleDebug` will fail at the `google-services` Gradle plugin step. Manual step before first device build. | `:app/google-services.json` | Owner-supplied; required for M9 device tests |
-| C-11 | No `./gradlew assembleDebug` run since M0 — full build chain not verified. Wrapper JAR restored in user-M11 (`gradle-8.9-wrapper.jar`, SHA-256 verified against `services.gradle.org/distributions/gradle-8.9-wrapper.jar.sha256`); `./gradlew --version` confirms Gradle 8.9 + JVM 17. Still need `google-services.json` to complete `assembleDebug`. | n/a | Supply `google-services.json` then run `./gradlew assembleDebug` |
+| C-10 | ~~`google-services.json` missing in `:app/`~~ | ~~`:app/google-services.json`~~ | ✅ Resolved (owner supplied the file; `processDebugGoogleServices` task now passes) |
+| C-11 | ~~No `./gradlew assembleDebug` since M0~~ | ~~n/a~~ | ✅ Resolved in user-M12: full clean `./gradlew assembleDebug` succeeds; `app/build/outputs/apk/debug/app-debug.apk` (≈15 MB) produced. Wrapper JAR + `local.properties` + `gradle.properties` restored in user-M11/M12. |
+| C-18 | Compile errors surfaced by the first real build (never caught earlier because the project was unbuilt since M0). All API-level mistakes from M2/M3/M5-C/M6: (a) `ArSessionManager` used `session.sharedCamera.cameraId` — no such accessor in ARCore 1.46; corrected to `session.cameraConfig.cameraId`. (b) `ResolutionPicker` imported `ResolutionFilter`/`ResolutionSelector` from `androidx.camera.core.*` — moved to `androidx.camera.core.resolutionselector.*` (CameraX 1.4 package layout). (c) `CameraXFrameSource` missing imports for `awaitClose`/`launch`; used `SystemClock.elapsedRealtimeMillis()` (no such method) → `elapsedRealtime()`; called non-existent `ImageAnalysis.Builder.setTargetFrameRate(...)` → moved the FPS hint into `Camera2Interop.Extender.setCaptureRequestOption(CONTROL_AE_TARGET_FPS_RANGE, …)`, preserving R-02. (d) `FormScreen` missing `import androidx.compose.ui.semantics.contentDescription`. (e) `ScanViewModel`/`PackagingViewModel` were `internal class` but used as default-arg types in public composables — switched to `class … @Inject internal constructor(…)` matching the codebase pattern (`UploadViewModel`). | Multiple files in `data-ar`, `data-camera`, `feature-form`, `feature-scan` | ✅ Resolved in user-M12 |
 | C-12 | `PackagingScreen` and `PackageSessionUseCase` deferred to `feature-scan` (plan-M6), not implemented in `feature-upload` | (design gap) | Implemented in plan-M6 per architecture §12 |
 | C-13 | ~~UploadScreen unreachable until NavHost wires `upload/{zipArtifactJson}` route~~ | ~~`AppNavHost.kt`~~ | ✅ Resolved in user-M10 |
+| C-19 | ~~`ArRepositoryImpl.startSession()` never emitted `ArSessionEvent.Ready` — the documented "session ready" event was missing, so the production ScanScreen would be stuck in `Initializing` forever. `ScanViewModelTest` only passed because it manually emitted `Ready` into a `MutableSharedFlow`, bypassing the repo. Caught during M11 hardening audit.~~ | ~~`data/data-ar/.../ArRepositoryImpl.kt`~~ | ✅ Resolved in user-M13: `emit(ArSessionEvent.Ready)` added after `sessionManager.bindLifecycle(...)` on the success path. |
+| C-20 | `ScanViewModel` stores `LifecycleOwner` in a field; on Activity recreation (rotation / config change) the held reference becomes stale and ARCore/CameraX remain bound to a dead lifecycle. No `configChanges` attribute on `MainActivity`. Approved specs do not mandate portrait-lock, so left as documented hazard rather than blanket app-wide change. | `features/feature-scan/.../ScanViewModel.kt`, `app/AndroidManifest.xml` | Deferred to plan-M9: instrumented rotation test should catch real-world breakage; conventional fix is `screenOrientation="portrait"` on the scan path (requires routing decision). |
+| C-21 | ~~`ZipBuilder` (`@Singleton`) stored the active `ZipOutputStream` in a `private lateinit var` field. Two concurrent `create()` calls would race and produce a corrupt ZIP. Only `PackageSessionUseCase` calls it today (single-shot), but the singleton-with-mutable-field shape is a sharp edge waiting for any future concurrent caller.~~ | ~~`core/core-storage/.../ZipBuilder.kt`~~ | ✅ Resolved in user-M13: introduced per-call `ZipWriteScope` (the DSL receiver of the `create` block); the builder itself is stateless. Pinned by new `ZipBuilderConcurrencyTest` (4 threads × 20 entries each → 4 archives with no cross-talk). |
+| C-22 | ~~`Logger`/`AndroidLogger`/`LoggerModule` + `StringExt` (`asLogTag`, `isAlphanumeric`, `truncate`) + `CollectionExt` (`isNotNullOrEmpty`, `second`, `secondOrNull`) were declared in `core-common` but never injected/used. Phantom Hilt binding, dead extension functions, dead test file.~~ | ~~`core/core-common/.../logging/Logger.kt`, `.../di/LoggerModule.kt`, `.../ext/StringExt.kt`, `.../ext/CollectionExt.kt`, `core-common/src/test/.../StringExtTest.kt`~~ | ✅ Resolved in user-M13: deleted 5 source/test files; package directories cleaned up. Production logging continues to use `android.util.Log` directly (16 call sites). |
+| R-15 | Firebase Storage rules not deployable from repo — only documented in risk register. | (deployment gap) | ✅ Mitigated in user-M13: `firebase/storage.rules` baseline tracked; enforces `request.auth.uid == userId` scope, write-only ZIPs, 200 MB cap. Deploy: `firebase deploy --only storage:rules`. |
 
 ---
 
@@ -155,9 +163,9 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | Module | Unit tests (`src/test/`) | Instrumented (`src/androidTest/`) |
 |--------|--------------------------|------------------------------------|
 | `:app` | `RoutesTest` (8, updated for C-1 resolution), `NavArgEncodingTest` (6, FormData/ZipArtifact round-trip + URL safety), `AppNavHostRouteTest` (8, cross-module route/arg consistency) | — |
-| `:core:core-common` | `ResultTest`, `AppDispatchersModuleTest`, `ext/StringExtTest` | — |
+| `:core:core-common` | `ResultTest`, `AppDispatchersModuleTest` (StringExtTest removed in user-M13 with the dead extension file) | — |
 | `:core:core-ui` | — | `PrimaryButtonTest`, `LabeledTextFieldTest`, `LoadingOverlayTest`, `ErrorBannerTest` |
-| `:core:core-storage` | `ZipBuilderTest`, `SessionDirectoryManagerTest`, `AppFileProviderTest` | — |
+| `:core:core-storage` | `ZipBuilderTest`, `ZipBuilderConcurrencyTest` (1, user-M13, pins C-21), `SessionDirectoryManagerTest`, `AppFileProviderTest` | — |
 | `:data:data-camera` | `TimestampGateTest` (8), `JpegFrameEncoderNv21Test` (6) | `ResolutionPickerTest` (6), `JpegFrameEncoderTest` (4) |
 | `:data:data-firebase` | `AnonymousAuthSourceTest`, `FirebaseStorageUploaderTest`, `FirebaseRepositoryImplTest` (11 total) | — |
 | `:features:feature-splash` | `SplashViewModelTest` (1) | — |
@@ -168,7 +176,7 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | `:features:feature-scan` | `StopScanUseCaseTest` (5 tests), `ScanViewModelTest` (10 tests), `FrameWriterTest` (5 tests), `MainDispatcherRule` | `PackageSessionUseCaseTest` (5 tests, ZIP integration), `ScanScreenTest` (5 tests) |
 | `:features:feature-scan`, `:features:feature-upload` test totals | above | above |
 
-**Not yet executed:** `./gradlew test`, `./gradlew connectedAndroidTest`, `./gradlew assembleDebug` (since M0).
+**Last executed (user-M13):** `./gradlew assembleDebug` — BUILD SUCCESSFUL, zero warnings; `./gradlew test` — BUILD SUCCESSFUL, all unit tests green. `./gradlew connectedAndroidTest` still not run (needs physical device + ARCore + Firebase reachability).
 
 ---
 
@@ -181,25 +189,29 @@ Verified by inspection of source files under `src/main/kotlin/` per module.
 | R-03 OOM during long scan | **Mitigated** — `STRATEGY_KEEP_ONLY_LATEST` + `MAX_FRAMES_IN_FLIGHT = 3` + ImageProxy closed before IO coroutine |
 | R-04 Focus/AE lock unsupported | **Mitigated** — Camera2Interop in `try/catch`; logs warning; scan continues with default AF/AE |
 | R-12 A-1/A-2 unresolved | **Ongoing** — placeholders in SelectionOptions/FormOptions; release-blocking |
-| R-13 ARCore session lifecycle leak | **Mitigated** — `ArSessionManager : DefaultLifecycleObserver`; pause/resume/close wired to lifecycle; `ScanViewModel.onCleared()` calls `destroySession()` as safety net |
-| R-15 Firebase Storage rules misconfigured | Requires manual Firebase project deployment before M6 integration testing |
-| R-16 App killed mid-packaging | Mitigated by ZipBuilder atomic rename; PackagingScreen logic deferred to M6 |
+| R-13 ARCore session lifecycle leak | **Mitigated** — `ArSessionManager : DefaultLifecycleObserver`; pause/resume/close wired to lifecycle; `ScanViewModel.onCleared()` calls `destroySession()` as safety net. C-20 documents a residual leak path on Activity recreation; deferred to plan-M9 instrumented coverage. |
+| R-15 Firebase Storage rules misconfigured | **Partially mitigated (user-M13)** — `firebase/storage.rules` baseline now tracked in repo; deployment to the live Firebase project still required (`firebase deploy --only storage:rules`). |
+| R-16 App killed mid-packaging | Mitigated by ZipBuilder atomic rename. ZipBuilder also made stateless in user-M13 (C-21), so a future concurrent caller cannot corrupt the temp file. |
 
 ---
 
 ## 9. Exact Next Implementation Step
 
-**Implement plan-M9: Testing & Hardening (user-M11).**
+**Implement plan-M9: Device-level Testing & R-15 deployment.**
 
-Key deliverables (per implementation_plan.md §M9):
-1. Add `google-services.json` to `:app/` so `./gradlew assembleDebug` succeeds (resolves C-10, C-17).
-2. Run the full unit-test suite (`./gradlew test`) and address any failures.
+State as of user-M13:
+- `./gradlew assembleDebug` succeeds with zero warnings.
+- `./gradlew test` runs all unit tests green.
+- M11 hardening audit complete (this session): C-19, C-21, C-22 resolved; R-15 baseline tracked in `firebase/storage.rules`; R-16 strengthened; C-20 documented (residual lifecycle leak on Activity recreation, deferred to device coverage).
+
+Key deliverables for plan-M9 (per implementation_plan.md §M9):
+1. Deploy `firebase/storage.rules` to the live Firebase project (`firebase deploy --only storage:rules --project <id>`).
+2. Run instrumented tests (`./gradlew connectedAndroidTest`) on a physical device with ARCore + Firebase reachable.
 3. Physical-device E2E walkthrough: Splash → Selection → Form → Scan (≥10 frames + AR distance) → Packaging → Upload → Success → "Start New Scan" → Selection.
 4. Offline-upload retry validation: airplane mode → trigger upload → confirm `UploadStage.RetryQueued` → restore network → confirm WorkManager re-runs `UploadWorker` and completes upload.
-5. Stress tests: OOM under 5-minute scan (R-03); ARCore tracking loss recovery (R-05); Firebase Storage rules deployment (R-15).
-6. Lint: `./gradlew lint`; address all errors.
-
-The integration milestone (plan-M8 / user-M10) is now complete — all 6 screens wired, nav-arg JSON contract validated by unit tests, MainActivity correctly hosting `ScanAppTheme` with ARCore install passthrough.
+5. Stress tests: OOM under 5-minute scan (R-03); ARCore tracking loss recovery (R-05).
+6. Rotation test on ScanScreen (C-20): if the residual leak path manifests, pin `screenOrientation="portrait"` on the scan path (likely needs a dedicated Activity or a CompositionLocal-driven setRequestedOrientation call from MainActivity).
+7. Lint: `./gradlew lint`; address all errors.
 
 ---
 

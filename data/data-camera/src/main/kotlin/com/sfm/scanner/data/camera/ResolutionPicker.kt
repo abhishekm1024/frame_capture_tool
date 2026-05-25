@@ -1,8 +1,8 @@
 package com.sfm.scanner.data.camera
 
 import android.util.Size
-import androidx.camera.core.ResolutionFilter
-import androidx.camera.core.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionFilter
+import androidx.camera.core.resolutionselector.ResolutionSelector
 
 /**
  * Encapsulates the preferred → fallback resolution selection logic.

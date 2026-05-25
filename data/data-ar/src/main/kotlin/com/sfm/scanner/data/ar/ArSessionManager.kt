@@ -66,7 +66,10 @@ internal class ArSessionManager(
             val session = Session(context, EnumSet.of(Session.Feature.SHARED_CAMERA))
             val config = depthChecker.buildConfig(session)
             session.configure(config)
-            val cameraId = session.sharedCamera.cameraId
+            // ARCore 1.46 exposes the active camera ID via Session.getCameraConfig().getCameraId();
+            // SharedCamera itself has no cameraId accessor. The chosen camera ID is what M6/M9
+            // hands to CameraX so its CameraSelector binds to the same Camera2 device.
+            val cameraId = session.cameraConfig.cameraId
             this.session = session
             CreateResult.Success(session, cameraId)
         } catch (e: UnavailableArcoreNotInstalledException) {

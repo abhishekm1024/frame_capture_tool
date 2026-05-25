@@ -1,0 +1,39 @@
+// Firebase Storage Security Rules — baseline for SfM Scanner uploads.
+//
+// Mirrors the path layout the app writes:
+//   FirebaseStorageUploader.upload(uid, zipFile) → "scans/{uid}/{zipFilename}"
+//
+// Contract (must hold in the deployed Firebase project for the app to work):
+//   1. Anonymous auth must be enabled in Firebase Authentication (the app calls
+//      FirebaseAuth.signInAnonymously()).
+//   2. Each anonymous user may only write inside their own UID-scoped directory.
+//   3. No public read access. Backend ingestion / human reviewers fetch via a
+//      privileged Admin SDK or signed URLs — out of scope for this file.
+//
+// Reference: docs/risk_register.md R-15.
+//
+// To deploy:
+//   firebase deploy --only storage:rules --project <YOUR_PROJECT_ID>
+
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Per-user scan upload directory.
+    match /scans/{userId}/{filename} {
+      // Only the authenticated user owning this UID may write.
+      // No reads from clients — uploads are write-only from the device.
+      allow write: if request.auth != null
+                && request.auth.uid == userId
+                && filename.matches('.*\\.zip')
+                && request.resource.size < 200 * 1024 * 1024;
+      allow read: if false;
+    }
+
+    // Deny everything else by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

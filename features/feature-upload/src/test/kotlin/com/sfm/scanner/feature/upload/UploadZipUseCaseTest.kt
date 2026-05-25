@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package com.sfm.scanner.feature.upload
 
 import app.cash.turbine.test

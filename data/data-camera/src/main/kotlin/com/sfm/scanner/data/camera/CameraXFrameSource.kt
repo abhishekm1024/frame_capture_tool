@@ -1,5 +1,3 @@
-@file:OptIn(ExperimentalCamera2Interop::class)
-
 package com.sfm.scanner.data.camera
 
 import android.content.Context
@@ -9,7 +7,6 @@ import android.util.Log
 import android.util.Range
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
-import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -19,8 +16,10 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.channels.ProducerScope
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
@@ -73,10 +72,14 @@ internal class CameraXFrameSource(
             Preview.Builder().build().also { it.surfaceProvider = provider }
         }
 
+        // Encoder is stateless w.r.t. frames; constructed once per flow so we avoid
+        // per-frame allocation (previously `JpegFrameEncoder(quality)` was instantiated
+        // inside processFrame for every accepted frame).
+        val encoder = JpegFrameEncoder(config.jpegQuality)
         val producerScope = this
 
         imageAnalysis.setAnalyzer(executor) { imageProxy ->
-            processFrame(imageProxy, config, producerScope)
+            processFrame(imageProxy, encoder, producerScope)
         }
 
         val provider = acquireCameraProvider()
@@ -153,10 +156,10 @@ internal class CameraXFrameSource(
 
     private fun processFrame(
         imageProxy: ImageProxy,
-        config: CameraConfig,
+        encoder: JpegFrameEncoder,
         scope: ProducerScope<FrameResult>,
     ) {
-        val nowElapsed = SystemClock.elapsedRealtimeMillis()
+        val nowElapsed = SystemClock.elapsedRealtime()
 
         // Layer 1 backpressure: timestamp gate (5 FPS enforcement)
         if (!timestampGate.shouldAccept(nowElapsed)) {
@@ -180,7 +183,7 @@ internal class CameraXFrameSource(
 
         scope.launch(dispatchers.io) {
             try {
-                val jpegBytes = JpegFrameEncoder(config.jpegQuality).encode(yuvFrame)
+                val jpegBytes = encoder.encode(yuvFrame)
                 val index = frameCounter.incrementAndGet()
                 val filename = "frame_%06d.jpg".format(index)
                 val record = FrameRecord(
@@ -203,7 +206,6 @@ internal class CameraXFrameSource(
         val builder = ImageAnalysis.Builder()
             .setResolutionSelector(ResolutionPicker().buildCameraXSelector())
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetFrameRate(Range(config.targetFps, config.targetFps))
 
         applyCamera2Interop(builder, config)
 
@@ -211,9 +213,15 @@ internal class CameraXFrameSource(
     }
 
     private fun applyCamera2Interop(builder: ImageAnalysis.Builder, config: CameraConfig) {
-        if (!config.lockFocus && !config.lockExposure) return
         try {
             val extender = Camera2Interop.Extender(builder)
+            // R-02 mitigation: hint the target FPS range to the HAL via Camera2 interop.
+            // ImageAnalysis.Builder itself has no setTargetFrameRate(...) in CameraX 1.4;
+            // CONTROL_AE_TARGET_FPS_RANGE is the documented channel.
+            extender.setCaptureRequestOption(
+                CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                Range(config.targetFps, config.targetFps),
+            )
             if (config.lockFocus) {
                 extender.setCaptureRequestOption(
                     CaptureRequest.CONTROL_AF_MODE,

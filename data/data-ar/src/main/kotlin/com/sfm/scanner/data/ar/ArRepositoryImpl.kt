@@ -51,9 +51,18 @@ class ArRepositoryImpl @Inject constructor(
             }
 
             // bindLifecycle calls lifecycle.addObserver() which must run on Main.
+            // DefaultLifecycleObserver.onResume() will call session.resume() once the
+            // LifecycleOwner reaches RESUMED — at that point the AR session is live and
+            // the screen can transition Initializing → Ready.
             withContext(dispatchers.main) {
                 sessionManager.bindLifecycle(lifecycleOwner)
             }
+
+            // Session is created and lifecycle-bound; surface Ready so the screen can
+            // exit Initializing per screen_specs §6 (AR_STATE_TRACKING). The actual
+            // ARCore tracking-quality signal flows through the measurement pipeline
+            // (TrackingChanged is sourced from there).
+            emit(ArSessionEvent.Ready)
 
             // Stay active until the collector cancels (e.g., ScanViewModel leaves composition).
             awaitCancellation()

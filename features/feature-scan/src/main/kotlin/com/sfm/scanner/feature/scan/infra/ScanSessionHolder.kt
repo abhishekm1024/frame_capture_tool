@@ -22,8 +22,8 @@ import javax.inject.Singleton
  * session and PackagingViewModel reading it, the holder is reset to null on next process
  * start. PackagingViewModel detects null and routes to the upload error state via
  * `PackagingUiEffect.NavigateToUploadWithError("Session lost — please re-scan")`. The
- * session JPEG files in cacheDir are orphaned and swept on next cold start by
- * `SessionDirectoryManager.cleanupStaleSessions()`.
+ * session JPEG files in cacheDir become orphaned; cacheDir is reclaimable by the OS so
+ * orphans are not a correctness issue. Adding a cold-start sweep is a M11+ enhancement.
  *
  * Minimal API surface (intentionally narrow):
  *  - [submit]: ScanViewModel writes a session (replaces any previous).

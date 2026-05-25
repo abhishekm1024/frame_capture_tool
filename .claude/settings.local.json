@@ -5,7 +5,8 @@
   "permissions": {
     "allow": [
       "Bash(xargs cat)",
-      "Bash(./gradlew :app:compileDebugKotlin)"
+      "Bash(./gradlew :app:compileDebugKotlin)",
+      "Bash(./gradlew test *)"
     ]
   }
 }

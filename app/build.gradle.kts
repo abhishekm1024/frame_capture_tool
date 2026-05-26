@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -7,6 +9,25 @@ plugins {
     alias(libs.plugins.google.services)
     alias(libs.plugins.kotlinx.serialization)
 }
+
+// ----------------------------------------------------------------------------
+// Optional release-signing configuration.
+//
+// To produce a signed release APK, place a `keystore.properties` file at the
+// repo root with the four properties listed in `keystore.properties.template`.
+// When the file is absent (e.g. in CI builds, on developer machines without a
+// keystore), the release variant falls back to the AGP-default unsigned APK so
+// `./gradlew assembleRelease` still succeeds for sanity-check builds.
+//
+// `keystore.properties` is gitignored — never commit it.
+// ----------------------------------------------------------------------------
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+val hasReleaseKeystore = keystoreProperties.getProperty("storeFile") != null
 
 android {
     namespace = "com.sfm.scanner"
@@ -22,6 +43,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -30,9 +62,18 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             isMinifyEnabled = false
+            // Side-by-side installable with release would normally use a
+            // distinct applicationId here (applicationIdSuffix = ".debug").
+            // That requires registering "com.sfm.scanner.debug" as a second
+            // client in Firebase (google-services.json) — an owner-supplied
+            // configuration step. Re-enable once that's done.
+            versionNameSuffix = "-debug"
         }
     }
 
@@ -53,6 +94,9 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // kotlinx.coroutines bundles a debug-agent metadata file used only by
+            // IDE step-debugging. Strip it from the final APK; it has no runtime use.
+            excludes += "DebugProbesKt.bin"
         }
     }
 }

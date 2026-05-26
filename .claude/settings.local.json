@@ -6,7 +6,23 @@
     "allow": [
       "Bash(xargs cat)",
       "Bash(./gradlew :app:compileDebugKotlin)",
-      "Bash(./gradlew test *)"
+      "Bash(./gradlew test *)",
+      "Bash(unzip -l /home/abhishek/Downloads/workspace/android_app/app/build/outputs/apk/release/app-release-unsigned.apk)",
+      "Read(//home/abhishek/.gradle/caches/modules-2/files-2.1/androidx.camera/camera-core/1.4.1/**)",
+      "Bash(xargs -I{} unzip -p {})",
+      "Bash(grep -v \"\\\\\\\\\\\\$\")",
+      "Bash(javap -classpath /tmp/cx_core/classes.jar androidx.camera.core.CameraUnavailableException)",
+      "Bash(find ~/.gradle/caches/modules-2/files-2.1/androidx.camera/camera-view/1.4.1 -name \"*.pom\" 2>/dev/null | head -1 | xargs cat 2>/dev/null | grep -A1 \"<artifactId>camera-\" | head -20)",
+      "Read(//home/abhishek/.gradle/caches/modules-2/files-2.1/androidx.camera/camera-view/1.4.1/**)",
+      "Bash(./gradlew :features:feature-scan:testDebugUnitTest)",
+      "Bash(xargs -I{} grep -h \"tests=\" {})",
+      "Bash(./gradlew assembleDebug test)",
+      "Bash(./gradlew :features:feature-scan:testDebugUnitTest :data:data-camera:compileDebugKotlin :data:data-ar:compileDebugKotlin)",
+      "Bash(./gradlew :data:data-camera:testDebugUnitTest :data:data-ar:testDebugUnitTest)",
+      "Bash(./gradlew :data:data-camera:compileDebugKotlin)",
+      "Bash(./gradlew :data:data-camera:testDebugUnitTest)",
+      "Bash(./gradlew assembleDebug)",
+      "Bash(./gradlew :data:data-camera:test)"
     ]
   }
 }

@@ -29,23 +29,33 @@ class ArRepositoryImpl @Inject constructor(
      */
     override fun startSession(lifecycleOwner: LifecycleOwner): Flow<ArSessionEvent> =
         flow {
+            Log.i(AR_LOG_TAG, "phase=startSession.createSession")
             // createSession() runs on the Default dispatcher (flowOn below).
             val result = sessionManager.createSession()
 
             when (result) {
                 is ArSessionManager.CreateResult.Unsupported -> {
+                    Log.i(AR_LOG_TAG, "phase=createSession.unsupported")
                     emit(ArSessionEvent.Unsupported)
                     return@flow
                 }
                 is ArSessionManager.CreateResult.InstallRequired -> {
+                    Log.i(AR_LOG_TAG, "phase=createSession.installRequired")
                     emit(ArSessionEvent.InstallRequired)
                     return@flow
                 }
                 is ArSessionManager.CreateResult.Failure -> {
+                    Log.e(
+                        AR_LOG_TAG,
+                        "phase=createSession.failure | class=${result.cause.javaClass.name}" +
+                            " | message=${result.cause.message ?: "<null>"}",
+                        result.cause,
+                    )
                     emit(ArSessionEvent.Error(result.cause))
                     return@flow
                 }
                 is ArSessionManager.CreateResult.Success -> {
+                    Log.i(AR_LOG_TAG, "phase=createSession.success cameraId=${result.cameraId}")
                     emit(ArSessionEvent.CameraShared(result.cameraId))
                 }
             }
@@ -57,12 +67,14 @@ class ArRepositoryImpl @Inject constructor(
             withContext(dispatchers.main) {
                 sessionManager.bindLifecycle(lifecycleOwner)
             }
+            Log.i(AR_LOG_TAG, "phase=bindLifecycle.done")
 
             // Session is created and lifecycle-bound; surface Ready so the screen can
             // exit Initializing per screen_specs §6 (AR_STATE_TRACKING). The actual
             // ARCore tracking-quality signal flows through the measurement pipeline
             // (TrackingChanged is sourced from there).
             emit(ArSessionEvent.Ready)
+            Log.i(AR_LOG_TAG, "phase=emit.ready")
 
             // Stay active until the collector cancels (e.g., ScanViewModel leaves composition).
             awaitCancellation()

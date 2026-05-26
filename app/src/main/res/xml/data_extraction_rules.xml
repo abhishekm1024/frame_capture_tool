@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Auto Backup + Device-to-Device transfer rules (targetSdk ≥ 31).
+
+    Backups are globally disabled at the application level via
+    android:allowBackup="false" in AndroidManifest.xml. This file is the explicit
+    no-rules companion expected by the lint check on API 31+ and makes the
+    "exclude everything" intent unambiguous to OEM backup agents and migration
+    tooling. See:
+      https://developer.android.com/about/versions/12/backup-restore
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

@@ -19,3 +19,7 @@ app/google-services.json
 # Keystore files
 *.jks
 *.keystore
+
+# Release-signing credentials (template file `keystore.properties.template` is
+# tracked; the real one with real passwords must never be committed).
+/keystore.properties

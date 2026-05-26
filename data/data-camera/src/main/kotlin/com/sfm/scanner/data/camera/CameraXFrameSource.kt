@@ -58,6 +58,7 @@ internal class CameraXFrameSource(
         config: CameraConfig,
         previewSurfaceProvider: Preview.SurfaceProvider?,
     ): Flow<FrameResult> = callbackFlow {
+        Log.i(LOG_TAG, "phase=asFlow.start preferredCameraId=${config.preferredCameraId} hasPreview=${previewSurfaceProvider != null}")
         timestampGate.reset()
         frameCounter.set(0)
         inFlightCount.set(0)
@@ -65,42 +66,76 @@ internal class CameraXFrameSource(
         val executor = Executors.newSingleThreadExecutor()
         cameraExecutor = executor
 
-        val imageAnalysis = buildImageAnalysis(config)
-        activeAnalysis = imageAnalysis
-
-        val preview = previewSurfaceProvider?.let { provider ->
-            Preview.Builder().build().also { it.surfaceProvider = provider }
-        }
-
         // Encoder is stateless w.r.t. frames; constructed once per flow so we avoid
         // per-frame allocation (previously `JpegFrameEncoder(quality)` was instantiated
         // inside processFrame for every accepted frame).
         val encoder = JpegFrameEncoder(config.jpegQuality)
         val producerScope = this
 
-        imageAnalysis.setAnalyzer(executor) { imageProxy ->
-            processFrame(imageProxy, encoder, producerScope)
-        }
-
         val provider = acquireCameraProvider()
         cameraProvider = provider
+        Log.i(LOG_TAG, "phase=provider.acquired")
 
         val cameraSelector = buildCameraSelector(config.preferredCameraId)
+        Log.i(LOG_TAG, "phase=selector.resolved preferredCameraId=${config.preferredCameraId}")
 
+        // CameraX requires every UseCase/UseCaseGroup constructor, every Builder.build(),
+        // every setSurfaceProvider/setAnalyzer call, and every bindToLifecycle invocation
+        // to run on Main. ScanViewModel collects this flow from `viewModelScope.launch(io)`,
+        // so the callbackFlow body executes on IO by default — building Preview off Main
+        // throws `IllegalStateException: Not in application's main thread` from CameraX's
+        // Threads.checkMainThread(). Everything that touches a CameraX object lives inside
+        // this withContext block.
         withContext(dispatchers.main) {
-            // Unbind any previous bindings to avoid lingering use cases on rebind
+            val imageAnalysis = buildImageAnalysis(config)
+            activeAnalysis = imageAnalysis
+            Log.i(LOG_TAG, "phase=imageAnalysis.built targetFps=${config.targetFps}")
+
+            val preview = previewSurfaceProvider?.let { provider ->
+                Preview.Builder().build().also { it.surfaceProvider = provider }
+            }
+            if (preview != null) Log.i(LOG_TAG, "phase=preview.built surfaceProviderAttached=true")
+
+            imageAnalysis.setAnalyzer(executor) { imageProxy ->
+                processFrame(imageProxy, encoder, producerScope)
+            }
+
+            // Unbind any previous bindings to avoid lingering use cases on rebind.
+            // A failure here is non-fatal (no prior binding) but worth surfacing — previously
+            // swallowed silently, which masked teardown anomalies during re-entry.
             runCatching { provider.unbindAll() }
+                .onFailure { Log.w(LOG_TAG, "phase=unbindAll.failed (non-fatal pre-bind cleanup)", it) }
             val useCases = listOfNotNull(preview, imageAnalysis).toTypedArray()
-            activeCamera = provider.bindToLifecycle(
-                lifecycleOwner,
-                cameraSelector,
-                *useCases,
-            )
+            Log.i(LOG_TAG, "phase=bindToLifecycle.starting useCases=${useCases.size}")
+            try {
+                activeCamera = provider.bindToLifecycle(
+                    lifecycleOwner,
+                    cameraSelector,
+                    *useCases,
+                )
+                Log.i(LOG_TAG, "phase=bindToLifecycle.succeeded")
+            } catch (t: Throwable) {
+                // Log with full context BEFORE the exception propagates out of callbackFlow.
+                // Without this, the only record of the failure was an upstream catch in
+                // ScanViewModel that logged "${e.message}" (often null) — making the real
+                // class + cause chain invisible in logcat.
+                Log.e(
+                    LOG_TAG,
+                    "phase=bindToLifecycle.failed | class=${t.javaClass.name}" +
+                        " | message=${t.message ?: "<null>"}" +
+                        " | cause-chain=${formatCauseChain(t)}",
+                    t,
+                )
+                throw t
+            }
         }
 
         awaitClose {
+            Log.i(LOG_TAG, "phase=asFlow.awaitClose")
             runCatching { provider.unbindAll() }
+                .onFailure { Log.w(LOG_TAG, "phase=unbindAll.failed (awaitClose)", it) }
             runCatching { executor.shutdown() }
+                .onFailure { Log.w(LOG_TAG, "phase=executor.shutdown.failed", it) }
             cameraProvider = null
             activeAnalysis = null
             activeCamera = null
@@ -108,11 +143,29 @@ internal class CameraXFrameSource(
         }
     }
 
+    private fun formatCauseChain(throwable: Throwable): String = buildString {
+        var current: Throwable? = throwable.cause
+        val seen = mutableSetOf(System.identityHashCode(throwable))
+        var depth = 0
+        while (current != null && depth < CAUSE_CHAIN_LIMIT) {
+            val id = System.identityHashCode(current)
+            if (id in seen) { append("[cycle]"); return@buildString }
+            seen += id
+            if (isNotEmpty()) append(" -> ")
+            append(current.javaClass.simpleName)
+            current.message?.takeIf { it.isNotBlank() }?.let { append('(').append(it).append(')') }
+            current = current.cause
+            depth++
+        }
+        if (current != null) append(" -> [truncated]")
+        if (isEmpty()) append("<none>")
+    }
+
     suspend fun stop() {
         withContext(dispatchers.main) {
             runCatching { cameraProvider?.unbindAll() }
+            runCatching { activeAnalysis?.clearAnalyzer() }
         }
-        runCatching { activeAnalysis?.clearAnalyzer() }
         activeCamera = null
     }
 
@@ -167,9 +220,10 @@ internal class CameraXFrameSource(
             return
         }
 
-        // Layer 2 backpressure: cap concurrent encode+emit operations
+        // Layer 2 backpressure: cap concurrent encode+emit operations.
+        // Drops are silent (per FrameWriter's bounded-queue contract — observable via
+        // the submittedCount vs writtenCount gap rather than per-frame logging).
         if (inFlightCount.get() >= MAX_FRAMES_IN_FLIGHT) {
-            Log.d(LOG_TAG, "MAX_FRAMES_IN_FLIGHT reached — dropping frame")
             imageProxy.close()
             return
         }
@@ -293,3 +347,7 @@ private fun ByteBuffer.toCompactByteArray(): ByteArray {
     get(bytes)
     return bytes
 }
+
+// Depth bound for cause-chain unwrapping in bindToLifecycle failure logs. Picks up the
+// real root cause (typically 1–3 levels deep) without ever spinning on a wrapper cycle.
+private const val CAUSE_CHAIN_LIMIT = 8

@@ -28,6 +28,16 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests {
+            // ScanViewModel + ScanLog call android.util.Log directly (M16 structured
+            // logging). On the host JVM the framework class is a stub that throws
+            // RuntimeException("Stub!") unless we tell AGP to return default values.
+            // Production behavior is unchanged — this only affects unit-test invocation.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -64,6 +74,9 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.turbine)
+    // ScanErrorClassifierTest instantiates ARCore exception types; production code only
+    // checks the package-name prefix (no compile-time ARCore dependency in the classifier).
+    testImplementation(libs.arcore)
 
     // Instrumented tests
     androidTestImplementation(platform(libs.compose.bom))

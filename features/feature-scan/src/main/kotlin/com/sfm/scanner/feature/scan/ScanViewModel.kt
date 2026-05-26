@@ -2,7 +2,6 @@ package com.sfm.scanner.feature.scan
 
 import android.content.Context
 import android.os.Build
-import android.util.Log
 import androidx.camera.core.Preview
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.SavedStateHandle
@@ -250,14 +249,17 @@ class ScanViewModel @Inject internal constructor(
 
     private fun startArSession() {
         val owner = lifecycleOwner ?: return
+        ScanLog.breadcrumb(LOG_TAG, "startArSession.start")
         arSessionJob = viewModelScope.launch {
             arRepository.startSession(owner).collect { event ->
                 when (event) {
                     is ArSessionEvent.CameraShared -> {
+                        ScanLog.breadcrumb(LOG_TAG, "ar.event.cameraShared", "cameraId" to event.cameraId)
                         arCameraId = event.cameraId
                         bindCameraIfReady()
                     }
                     ArSessionEvent.Ready -> {
+                        ScanLog.breadcrumb(LOG_TAG, "ar.event.ready")
                         if (_uiState.value is ScanUiState.Initializing) {
                             arDisplayState = ArDisplayState.TRACKING
                             _uiState.value = ScanUiState.Ready(torchOn, arDisplayState)
@@ -265,13 +267,18 @@ class ScanViewModel @Inject internal constructor(
                     }
                     is ArSessionEvent.TrackingChanged -> { /* covered by measurement flow */ }
                     ArSessionEvent.Unsupported -> {
+                        ScanLog.breadcrumb(LOG_TAG, "ar.event.unsupported")
                         arDisplayState = ArDisplayState.UNSUPPORTED
                         _uiState.value = ScanUiState.Error(ScanStrings.ERROR_AR_UNSUPPORTED)
                     }
                     ArSessionEvent.InstallRequired -> {
+                        ScanLog.breadcrumb(LOG_TAG, "ar.event.installRequired")
                         _effects.tryEmit(ScanUiEffect.RequestArInstall)
                     }
                     is ArSessionEvent.Error -> {
+                        // Was previously unlogged — any post-CameraShared AR failure was
+                        // invisible in logcat. Now records class + cause-chain.
+                        ScanLog.logError(LOG_TAG, "ar.event.error", event.cause)
                         _uiState.value = ScanUiState.Error(
                             event.cause.message ?: ScanStrings.ERROR_AR_UNSUPPORTED,
                         )
@@ -290,12 +297,26 @@ class ScanViewModel @Inject internal constructor(
      * [activeWriter] is null and frames are silently discarded (no IO work).
      */
     private fun bindCameraIfReady() {
-        if (cameraBound) return
-        val owner = lifecycleOwner ?: return
-        val provider = surfaceProvider ?: return
-        val cameraId = arCameraId ?: return
+        if (cameraBound) {
+            ScanLog.breadcrumb(LOG_TAG, "bindCameraIfReady.alreadyBound")
+            return
+        }
+        val owner = lifecycleOwner
+        val provider = surfaceProvider
+        val cameraId = arCameraId
+        if (owner == null || provider == null || cameraId == null) {
+            ScanLog.breadcrumb(
+                LOG_TAG,
+                "bindCameraIfReady.waiting",
+                "hasOwner" to (owner != null),
+                "hasSurfaceProvider" to (provider != null),
+                "hasCameraId" to (cameraId != null),
+            )
+            return
+        }
 
         cameraBound = true
+        ScanLog.breadcrumb(LOG_TAG, "bindCameraIfReady.start", "cameraId" to cameraId)
         cameraFlowJob = viewModelScope.launch(dispatchers.io) {
             val config = CameraConfig(preferredCameraId = cameraId)
             try {
@@ -303,17 +324,19 @@ class ScanViewModel @Inject internal constructor(
                     when (result) {
                         is FrameResult.Frame -> activeWriter?.submit(result.record, result.jpegBytes)
                         is FrameResult.Error -> {
-                            Log.e(LOG_TAG, "Camera frame error: ${result.cause.message}", result.cause)
+                            ScanLog.logError(LOG_TAG, "frame.error", result.cause)
+                            val message = ScanErrorClassifier.classifyCameraError(result.cause)
                             withContext(dispatchers.main) {
-                                _uiState.value = ScanUiState.Error(ScanStrings.ERROR_CAMERA_UNAVAILABLE)
+                                _uiState.value = ScanUiState.Error(message)
                             }
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.e(LOG_TAG, "Camera startCapture failed: ${e.message}", e)
+                ScanLog.logError(LOG_TAG, "startCapture.failed", e, "cameraId" to cameraId)
+                val message = ScanErrorClassifier.classifyCameraError(e)
                 withContext(dispatchers.main) {
-                    _uiState.value = ScanUiState.Error(ScanStrings.ERROR_CAMERA_UNAVAILABLE)
+                    _uiState.value = ScanUiState.Error(message)
                 }
             }
         }
